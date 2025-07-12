@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { subscriptionManager } from '@/lib/subscriptionManager'
-import { supabase } from '@/lib/supabase'
 import { createClient } from '@supabase/supabase-js'
+import { subscriptionManager } from '@/lib/subscriptionManager'
 
 export async function POST(request: NextRequest) {
   try {
-    const { plan, userId, period = 'monthly', autoRenewal = true } = await request.json()
+    const { userId, autoRenewal } = await request.json()
 
     if (!userId) {
       return NextResponse.json(
@@ -14,16 +13,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!plan || !['free', 'explorer', 'adventurer'].includes(plan)) {
+    if (typeof autoRenewal !== 'boolean') {
       return NextResponse.json(
-        { error: 'Invalid plan. Must be free, explorer or adventurer' },
-        { status: 400 }
-      )
-    }
-
-    if (!period || !['monthly', 'annual'].includes(period)) {
-      return NextResponse.json(
-        { error: 'Invalid period. Must be monthly or annual' },
+        { error: 'Auto-renewal must be a boolean value' },
         { status: 400 }
       )
     }
@@ -38,24 +30,23 @@ export async function POST(request: NextRequest) {
       serviceRoleKey
     )
 
-    // Update the subscription with period and auto-renewal
-    await subscriptionManager.updateSubscription(
+    // Toggle auto-renewal
+    const subscription = await subscriptionManager.toggleAutoRenewal(
       userId, 
-      plan, 
-      period, 
       autoRenewal, 
       serviceSupabase
     )
 
     return NextResponse.json({ 
       success: true, 
-      message: `Successfully upgraded to ${plan} plan (${period})` 
+      subscription,
+      message: `Auto-renewal ${autoRenewal ? 'enabled' : 'disabled'}` 
     })
 
   } catch (error) {
-    console.error('Error upgrading subscription:', error)
+    console.error('Error toggling auto-renewal:', error)
     return NextResponse.json(
-      { error: 'Failed to upgrade subscription' },
+      { error: 'Failed to update auto-renewal' },
       { status: 500 }
     )
   }

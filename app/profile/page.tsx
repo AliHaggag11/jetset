@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { subscriptionService } from '@/lib/subscriptionService'
+import { subscriptionManager } from '@/lib/subscriptionManager'
 import { 
   Crown, 
   Zap, 
@@ -44,6 +45,9 @@ export default function ProfilePage() {
   const { theme: currentTheme, setTheme: setCurrentTheme } = useTheme()
   const [activeTab, setActiveTab] = useState<TabType>('profile')
   const [plan, setPlan] = useState<'free' | 'explorer' | 'adventurer'>('free')
+  const [period, setPeriod] = useState<'monthly' | 'annual'>('monthly')
+  const [autoRenewal, setAutoRenewal] = useState(true)
+  const [subscriptionEndDate, setSubscriptionEndDate] = useState<string | null>(null)
   const [email, setEmail] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -55,6 +59,10 @@ export default function ProfilePage() {
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+
+  // Plan change confirmation state
+  const [showPlanConfirm, setShowPlanConfirm] = useState(false)
+  const [pendingPlanChange, setPendingPlanChange] = useState<'free' | 'explorer' | 'adventurer' | null>(null)
 
   // Settings state
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(currentTheme)
@@ -108,6 +116,14 @@ export default function ProfilePage() {
     if (user) {
       const sub = await subscriptionService.getUserSubscription(user.id)
       setPlan(sub?.plan || 'free')
+      
+      // Get detailed subscription info including period and auto-renewal
+      const detailedSub = await subscriptionManager.getCurrentSubscription(user.id)
+      if (detailedSub) {
+        setPeriod(detailedSub.period || 'monthly')
+        setAutoRenewal(detailedSub.auto_renewal ?? true)
+        setSubscriptionEndDate(detailedSub.current_period_end)
+      }
     }
   }
 
@@ -337,32 +353,171 @@ export default function ProfilePage() {
 
   const handleDeleteAccount = async () => {
     if (deleteConfirmText !== 'DELETE') {
-      setError('Please type DELETE to confirm')
+      setPasswordError('Please type DELETE to confirm')
       return
     }
-
     setDeleting(true)
     try {
       const response = await fetch('/api/profile/delete-account', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        }
+        },
+        body: JSON.stringify({ userId: user?.id }),
       })
-
       if (response.ok) {
         await signOut()
         router.push('/')
       } else {
-        const error = await response.json()
-        setError(error.error || 'Failed to delete account')
+        const data = await response.json()
+        setPasswordError(data.error || 'Failed to delete account')
       }
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete account')
+    } catch (error) {
+      setPasswordError('Failed to delete account')
     } finally {
       setDeleting(false)
     }
+  }
+
+  // Subscription management functions
+  const handleUpdatePeriod = async (newPeriod: 'monthly' | 'annual') => {
+    if (!user) return
+    
+    try {
+      const response = await fetch('/api/subscription/update-period', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          period: newPeriod
+        }),
+      })
+
+      if (response.ok) {
+        setPeriod(newPeriod)
+        // Refresh subscription data
+        await fetchPlan()
+      } else {
+        const data = await response.json()
+        setError(data.error || 'Failed to update billing period')
+      }
+    } catch (error) {
+      setError('Failed to update billing period')
+    }
+  }
+
+  const handleToggleAutoRenewal = async (enabled: boolean) => {
+    if (!user) return
+    
+    try {
+      const response = await fetch('/api/subscription/toggle-auto-renewal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          autoRenewal: enabled
+        }),
+      })
+
+      if (response.ok) {
+        setAutoRenewal(enabled)
+      } else {
+        const data = await response.json()
+        setError(data.error || 'Failed to update auto-renewal')
+      }
+    } catch (error) {
+      setError('Failed to update auto-renewal')
+    }
+  }
+
+  const handleChangePlan = async (newPlan: 'free' | 'explorer' | 'adventurer') => {
+    if (!user) return
+    
+    // Check if this is a downgrade
+    const planOrder = getPlanOrder()
+    const currentIndex = planOrder.indexOf(plan)
+    const newIndex = planOrder.indexOf(newPlan)
+    
+    if (newIndex < currentIndex) {
+      // This is a downgrade - show confirmation
+      setPendingPlanChange(newPlan)
+      setShowPlanConfirm(true)
+      return
+    }
+    
+    // This is an upgrade or same plan - proceed immediately
+    await performPlanChange(newPlan)
+  }
+
+  const performPlanChange = async (newPlan: 'free' | 'explorer' | 'adventurer') => {
+    if (!user) return
+    
+    try {
+      const response = await fetch('/api/subscription/upgrade', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          plan: newPlan,
+          userId: user.id,
+          period: period,
+          autoRenewal: autoRenewal
+        }),
+      })
+
+      if (response.ok) {
+        setPlan(newPlan)
+        // Refresh subscription data
+        await fetchPlan()
+        setSuccess(true)
+        setTimeout(() => setSuccess(false), 3000)
+      } else {
+        const data = await response.json()
+        setError(data.error || 'Failed to change plan')
+      }
+    } catch (error) {
+      setError('Failed to change plan')
+    }
+  }
+
+  const confirmPlanChange = async () => {
+    if (pendingPlanChange) {
+      await performPlanChange(pendingPlanChange)
+      setShowPlanConfirm(false)
+      setPendingPlanChange(null)
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })
+  }
+
+  const getCurrentPrice = () => {
+    if (plan === 'free') return 'Free'
+    return subscriptionManager.getFormattedPrice(plan, period)
+  }
+
+  const getPlanOrder = () => {
+    return ['free', 'explorer', 'adventurer']
+  }
+
+  const getActionLabel = (targetPlan: 'free' | 'explorer' | 'adventurer') => {
+    const planOrder = getPlanOrder()
+    const currentIndex = planOrder.indexOf(plan)
+    const targetIndex = planOrder.indexOf(targetPlan)
+    
+    if (targetIndex > currentIndex) return 'Upgrade'
+    if (targetIndex < currentIndex) return 'Downgrade'
+    return 'Current Plan'
   }
 
   if (loading) {
@@ -637,24 +792,136 @@ export default function ProfilePage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        {getPlanIcon()}
-                        <div>
-                          <h3 className="font-semibold">{getPlanName()} Plan</h3>
-                          <p className="text-sm text-gray-600">
-                            {plan === 'free' ? 'Basic features included' : 
-                             plan === 'explorer' ? 'Enhanced features with priority support' : 
-                             'All features with premium support'}
-                          </p>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div className="flex items-center space-x-4">
+                          {getPlanIcon()}
+                          <div>
+                            <h3 className="font-semibold">{getPlanName()} Plan</h3>
+                            <p className="text-sm text-gray-600">
+                              {plan === 'free' ? 'Basic features included' : 
+                               plan === 'explorer' ? 'Enhanced features with priority support' : 
+                               'All features with premium support'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-semibold">{getCurrentPrice()}</div>
+                          {plan !== 'free' && (
+                            <div className="text-sm text-gray-600">
+                              {period === 'annual' ? 'Billed annually' : 'Billed monthly'}
+                            </div>
+                          )}
                         </div>
                       </div>
-                      <Button variant="outline" onClick={() => router.push('/pricing')}>
-                        {plan === 'free' ? 'Upgrade' : 'Manage Plan'}
-                      </Button>
+
+                      {plan !== 'free' && (
+                        <>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor="plan-tier">Plan Tier</Label>
+                              <Select value={plan} onValueChange={(value: 'free' | 'explorer' | 'adventurer') => handleChangePlan(value)}>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="free">Free Plan</SelectItem>
+                                  <SelectItem value="explorer">Explorer Plan</SelectItem>
+                                  <SelectItem value="adventurer">Adventurer Plan</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <p className="text-xs text-gray-500 mt-1">
+                                {getActionLabel(plan)} • {getCurrentPrice()}
+                              </p>
+                            </div>
+                            <div>
+                              <Label htmlFor="billing-period">Billing Period</Label>
+                              <Select value={period} onValueChange={(value: 'monthly' | 'annual') => handleUpdatePeriod(value)}>
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="monthly">Monthly</SelectItem>
+                                  <SelectItem value="annual">Annual (Save 17%)</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div>
+                            <Label>Auto-Renewal</Label>
+                            <div className="flex items-center space-x-2 mt-2">
+                              <Checkbox
+                                id="auto-renewal"
+                                checked={autoRenewal}
+                                onCheckedChange={(checked) => handleToggleAutoRenewal(checked as boolean)}
+                              />
+                              <Label htmlFor="auto-renewal" className="text-sm">
+                                Automatically renew my subscription
+                              </Label>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {plan === 'free' && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label htmlFor="plan-tier">Plan Tier</Label>
+                            <Select value={plan} onValueChange={(value: 'free' | 'explorer' | 'adventurer') => handleChangePlan(value)}>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="free">Free Plan</SelectItem>
+                                <SelectItem value="explorer">Explorer Plan</SelectItem>
+                                <SelectItem value="adventurer">Adventurer Plan</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <p className="text-xs text-gray-500 mt-1">
+                              {getActionLabel(plan)} • {getCurrentPrice()}
+                            </p>
+                          </div>
+                          <div className="flex items-end">
+                            <Button 
+                              variant="outline" 
+                              onClick={() => router.push('/pricing')}
+                              className="w-full"
+                            >
+                              View All Plans
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {subscriptionEndDate && (
+                        <div className="p-4 bg-blue-50 rounded-lg">
+                          <div className="flex items-center space-x-2">
+                            <Calendar className="w-4 h-4 text-blue-600" />
+                            <span className="text-sm font-medium text-blue-800">
+                              Next billing date: {formatDate(subscriptionEndDate)}
+                            </span>
+                          </div>
+                          {!autoRenewal && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              Your subscription will not automatically renew
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
+
+                {success && (
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-green-800 text-sm">Subscription updated successfully!</p>
+                  </div>
+                )}
+                {error && (
+                  <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-red-800 text-sm">{error}</p>
+                  </div>
+                )}
 
                 <Card>
                   <CardHeader>
@@ -664,19 +931,19 @@ export default function ProfilePage() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div className="p-4 bg-blue-50 rounded-lg">
                         <div className="text-2xl font-bold text-blue-600">
-                          {plan === 'free' ? '3' : plan === 'explorer' ? '10' : '∞'}
+                          {plan === 'free' ? '1' : plan === 'explorer' ? '5' : '∞'}
                         </div>
                         <div className="text-sm text-gray-600">Trips per month</div>
                       </div>
                       <div className="p-4 bg-green-50 rounded-lg">
                         <div className="text-2xl font-bold text-green-600">
-                          {plan === 'free' ? '1' : plan === 'explorer' ? '3' : '∞'}
+                          {plan === 'free' ? '1' : '∞'}
                         </div>
                         <div className="text-sm text-gray-600">Regenerations per trip</div>
                       </div>
                       <div className="p-4 bg-purple-50 rounded-lg">
                         <div className="text-2xl font-bold text-purple-600">
-                          {plan === 'free' ? '7' : plan === 'explorer' ? '14' : '30'}
+                          {plan === 'free' ? '3' : plan === 'explorer' ? '30' : '∞'}
                         </div>
                         <div className="text-sm text-gray-600">Max trip days</div>
                       </div>
@@ -866,6 +1133,37 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Plan Change Confirmation Modal */}
+      {showPlanConfirm && (
+        <div className="fixed inset-0 bg-white/30 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl border border-gray-200">
+            <h3 className="text-lg font-semibold mb-4">Confirm Plan Downgrade</h3>
+            <p className="text-gray-600 mb-4">
+              Are you sure you want to downgrade to the {pendingPlanChange ? pendingPlanChange.charAt(0).toUpperCase() + pendingPlanChange.slice(1) : ''} plan? 
+              You may lose access to premium features.
+            </p>
+            <div className="flex space-x-3">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowPlanConfirm(false)
+                  setPendingPlanChange(null)
+                }}
+                className="flex-1"
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={confirmPlanChange}
+                className="flex-1"
+              >
+                Confirm Downgrade
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 } 

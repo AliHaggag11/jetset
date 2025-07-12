@@ -1,22 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { subscriptionManager } from '@/lib/subscriptionManager'
-import { supabase } from '@/lib/supabase'
 import { createClient } from '@supabase/supabase-js'
+import { subscriptionManager } from '@/lib/subscriptionManager'
+import type { PeriodType } from '@/lib/subscriptionManager'
 
 export async function POST(request: NextRequest) {
   try {
-    const { plan, userId, period = 'monthly', autoRenewal = true } = await request.json()
+    const { userId, period } = await request.json()
 
     if (!userId) {
       return NextResponse.json(
         { error: 'User ID is required' },
-        { status: 400 }
-      )
-    }
-
-    if (!plan || !['free', 'explorer', 'adventurer'].includes(plan)) {
-      return NextResponse.json(
-        { error: 'Invalid plan. Must be free, explorer or adventurer' },
         { status: 400 }
       )
     }
@@ -38,24 +31,23 @@ export async function POST(request: NextRequest) {
       serviceRoleKey
     )
 
-    // Update the subscription with period and auto-renewal
-    await subscriptionManager.updateSubscription(
+    // Update the subscription period
+    const subscription = await subscriptionManager.updateSubscriptionPeriod(
       userId, 
-      plan, 
-      period, 
-      autoRenewal, 
+      period as PeriodType, 
       serviceSupabase
     )
 
     return NextResponse.json({ 
       success: true, 
-      message: `Successfully upgraded to ${plan} plan (${period})` 
+      subscription,
+      message: `Successfully updated to ${period} billing` 
     })
 
   } catch (error) {
-    console.error('Error upgrading subscription:', error)
+    console.error('Error updating subscription period:', error)
     return NextResponse.json(
-      { error: 'Failed to upgrade subscription' },
+      { error: 'Failed to update subscription period' },
       { status: 500 }
     )
   }

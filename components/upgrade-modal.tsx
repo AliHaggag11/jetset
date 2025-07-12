@@ -8,22 +8,49 @@ import { Crown, Zap, Plane, Check, X } from 'lucide-react'
 import { subscriptionManager } from '@/lib/subscriptionManager'
 import { useAuth } from '@/lib/auth'
 import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
+import type { PlanType } from '@/lib/subscriptionManager'
 
 interface UpgradeModalProps {
   isOpen: boolean
   onClose: () => void
   currentPlan: 'free' | 'explorer' | 'adventurer'
   reason: string
+  targetPlan?: 'explorer' | 'adventurer'
+  billingPeriod?: 'monthly' | 'annual'
 }
 
-export default function UpgradeModal({ isOpen, onClose, currentPlan, reason }: UpgradeModalProps) {
+export default function UpgradeModal({ isOpen, onClose, currentPlan, reason, targetPlan, billingPeriod = 'monthly' }: UpgradeModalProps) {
   const { user } = useAuth()
   const router = useRouter()
   const [upgrading, setUpgrading] = useState(false)
+  const [success, setSuccess] = useState(false)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (isOpen) {
+      setSuccess(false)
+      setErrorMsg(null)
+    }
+  }, [isOpen])
 
   if (!isOpen) return null
 
   const recommendations = subscriptionManager.getUpgradeRecommendations(currentPlan)
+
+  // Use targetPlan if provided, otherwise use recommendations.nextPlan
+  const planToChange = targetPlan || recommendations.nextPlan
+  const planOrder = ['free', 'explorer', 'adventurer']
+  const currentPlanIndex = planOrder.indexOf(currentPlan)
+  const nextPlanIndex = planToChange ? planOrder.indexOf(planToChange) : -1
+  const isUpgrade = nextPlanIndex > currentPlanIndex
+  const isDowngrade = nextPlanIndex < currentPlanIndex && nextPlanIndex !== -1
+  const actionLabel = isUpgrade ? 'Upgrade' : isDowngrade ? 'Downgrade' : 'Change Plan'
+
+  // Get plan info for UI
+  const planInfo = planToChange ? subscriptionManager.plans[planToChange as PlanType] : null
+  const planBenefits = planInfo ? Object.entries(planInfo.features).filter(([k, v]) => v && typeof v !== 'number').map(([k]) => k.replace(/_/g, ' ')) : []
+  const planPrice = planInfo ? subscriptionManager.getFormattedPrice(planToChange as PlanType, billingPeriod) : ''
 
   const handleUpgrade = async (plan: 'explorer' | 'adventurer') => {
     if (!user) {
@@ -32,6 +59,7 @@ export default function UpgradeModal({ isOpen, onClose, currentPlan, reason }: U
     }
 
     setUpgrading(true)
+    setErrorMsg(null)
     try {
       const response = await fetch('/api/subscription/upgrade', {
         method: 'POST',
@@ -40,20 +68,23 @@ export default function UpgradeModal({ isOpen, onClose, currentPlan, reason }: U
         },
         body: JSON.stringify({
           plan,
-          userId: user.id
+          userId: user.id,
+          period: billingPeriod,
+          autoRenewal: true
         }),
       })
 
       if (response.ok) {
-        alert(`Successfully upgraded to ${plan} plan!`)
-        onClose()
-        router.push('/dashboard')
+        setSuccess(true)
+        setTimeout(() => {
+          router.push('/dashboard')
+        }, 2000)
       } else {
-        const error = await response.json()
-        alert(error.error || 'Failed to upgrade')
+        const data = await response.json()
+        setErrorMsg(data.error || 'Failed to upgrade subscription')
       }
     } catch (error) {
-      alert('Failed to upgrade subscription')
+      setErrorMsg('Failed to upgrade subscription')
     } finally {
       setUpgrading(false)
     }
@@ -87,27 +118,31 @@ export default function UpgradeModal({ isOpen, onClose, currentPlan, reason }: U
         <CardHeader className="text-center">
           <CardTitle className="flex items-center justify-center space-x-2">
             <Crown className="w-6 h-6 text-yellow-500" />
-            <span>Upgrade Your Plan</span>
+            <span>{isUpgrade ? 'Upgrade' : isDowngrade ? 'Downgrade' : 'Change'} Your Plan</span>
           </CardTitle>
           <p className="text-sm text-gray-600">{reason}</p>
         </CardHeader>
         <CardContent className="space-y-4">
-          {recommendations.nextPlan && (
+          {success ? (
+            <div className="text-center py-8">
+              <p className="text-green-700 font-semibold text-lg mb-2">Plan changed successfully!</p>
+              <p className="text-gray-600">Redirecting to your dashboard...</p>
+            </div>
+          ) : planToChange && planInfo && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  {getPlanIcon(recommendations.nextPlan)}
-                  <span className="font-semibold capitalize">{recommendations.nextPlan}</span>
-                  <Badge className={getPlanColor(recommendations.nextPlan)}>
-                    {recommendations.price}
+                  {getPlanIcon(planToChange)}
+                  <span className="font-semibold capitalize">{planInfo.name}</span>
+                  <Badge className={getPlanColor(planToChange)}>
+                    {planPrice}
                   </Badge>
                 </div>
               </div>
-              
               <div className="space-y-2">
                 <p className="text-sm font-medium text-gray-700">What you'll get:</p>
                 <ul className="space-y-1">
-                  {recommendations.benefits.map((benefit, index) => (
+                  {planBenefits.map((benefit, index) => (
                     <li key={index} className="flex items-center space-x-2 text-sm text-gray-600">
                       <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
                       <span>{benefit}</span>
@@ -115,19 +150,21 @@ export default function UpgradeModal({ isOpen, onClose, currentPlan, reason }: U
                   ))}
                 </ul>
               </div>
-
               <div className="flex space-x-2 pt-4">
                 <Button
-                  onClick={() => handleUpgrade(recommendations.nextPlan as 'explorer' | 'adventurer')}
+                  onClick={() => handleUpgrade(planToChange as 'explorer' | 'adventurer')}
                   disabled={upgrading}
                   className="flex-1"
                 >
-                  {upgrading ? 'Upgrading...' : `Upgrade to ${recommendations.nextPlan}`}
+                  {upgrading
+                    ? `${actionLabel}...`
+                    : `${actionLabel} to ${planInfo.name}`}
                 </Button>
                 <Button variant="outline" onClick={onClose} disabled={upgrading}>
                   <X className="w-4 h-4" />
                 </Button>
               </div>
+              {errorMsg && <div className="text-red-600 text-sm text-center pt-2">{errorMsg}</div>}
             </div>
           )}
 

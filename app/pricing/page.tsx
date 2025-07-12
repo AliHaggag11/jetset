@@ -8,12 +8,12 @@ import { Check, X, Star, Zap, Crown, Sparkles } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
 import { useRouter } from 'next/navigation'
+import UpgradeModal from '@/components/upgrade-modal'
+import { subscriptionManager } from '@/lib/subscriptionManager'
 
 const plans = [
   {
     name: 'Free',
-    price: '$0',
-    period: 'forever',
     description: 'Perfect for trying out AI travel planning',
     icon: Sparkles,
     features: [
@@ -35,8 +35,6 @@ const plans = [
   },
   {
     name: 'Explorer',
-    price: '$9.99',
-    period: 'per month',
     description: 'Great for occasional travelers',
     icon: Zap,
     features: [
@@ -59,8 +57,6 @@ const plans = [
   },
   {
     name: 'Adventurer',
-    price: '$19.99',
-    period: 'per month',
     description: 'Perfect for frequent travelers',
     icon: Crown,
     features: [
@@ -85,14 +81,34 @@ const plans = [
 ]
 
 export default function PricingPage() {
-  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly')
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly')
   const { user } = useAuth()
   const router = useRouter()
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [upgradePlan, setUpgradePlan] = useState<'explorer' | 'adventurer' | null>(null)
+  const [upgradeReason, setUpgradeReason] = useState('')
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'explorer' | 'adventurer'>('free')
 
-  const getYearlyPrice = (monthlyPrice: string) => {
-    const price = parseFloat(monthlyPrice.replace('$', ''))
-    const yearlyPrice = price * 12 * 0.8 // 20% discount
-    return `$${yearlyPrice.toFixed(0)}`
+  const getPlanPrice = (planName: string) => {
+    if (planName === 'Free') return 'Free'
+    const planKey = planName.toLowerCase() as 'explorer' | 'adventurer'
+    return subscriptionManager.getFormattedPrice(planKey, billingPeriod)
+  }
+
+  const handleUpgradeClick = (plan: 'explorer' | 'adventurer') => {
+    setUpgradePlan(plan)
+    setUpgradeReason(`Upgrade to the ${plan.charAt(0).toUpperCase() + plan.slice(1)} plan for more features!`)
+    setShowUpgradeModal(true)
+  }
+
+  // Helper to determine plan order
+  const planOrder = ['free', 'explorer', 'adventurer']
+  const currentPlanIndex = planOrder.indexOf(currentPlan)
+  const getActionLabel = (plan: 'explorer' | 'adventurer') => {
+    const nextPlanIndex = planOrder.indexOf(plan)
+    if (nextPlanIndex > currentPlanIndex) return 'Upgrade'
+    if (nextPlanIndex < currentPlanIndex) return 'Downgrade'
+    return 'Change Plan'
   }
 
   return (
@@ -127,9 +143,9 @@ export default function PricingPage() {
               Monthly
             </button>
             <button
-              onClick={() => setBillingPeriod('yearly')}
+              onClick={() => setBillingPeriod('annual')}
               className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                billingPeriod === 'yearly'
+                billingPeriod === 'annual'
                   ? 'bg-blue-600 text-white'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
@@ -171,12 +187,12 @@ export default function PricingPage() {
                   <CardTitle className="text-2xl font-bold text-gray-900">{plan.name}</CardTitle>
                   <div className="mt-2">
                     <span className="text-4xl font-bold text-gray-900">
-                      {billingPeriod === 'yearly' && plan.price !== '$0' 
-                        ? getYearlyPrice(plan.price) 
-                        : plan.price}
+                      {billingPeriod === 'annual' && plan.name !== 'Free' 
+                        ? getPlanPrice(plan.name) 
+                        : plan.name === 'Free' ? 'Free' : getPlanPrice(plan.name)}
                     </span>
                     <span className="text-gray-600 ml-1">
-                      {plan.price === '$0' ? '' : billingPeriod === 'yearly' ? '/year' : '/month'}
+                      {plan.name === 'Free' ? '' : billingPeriod === 'annual' ? '/year' : '/month'}
                     </span>
                   </div>
                   <p className="text-gray-600 text-sm mt-2">{plan.description}</p>
@@ -225,37 +241,9 @@ export default function PricingPage() {
                     ) : (
                       <Button 
                         className={`w-full ${isPopular ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-900 hover:bg-gray-800'}`}
-                        onClick={async () => {
-                          if (!user) {
-                            router.push('/signup')
-                            return
-                          }
-                          
-                          try {
-                            const response = await fetch('/api/subscription/upgrade', {
-                              method: 'POST',
-                              headers: {
-                                'Content-Type': 'application/json',
-                              },
-                              body: JSON.stringify({
-                                plan: plan.name.toLowerCase(),
-                                userId: user.id
-                              }),
-                            })
-
-                            if (response.ok) {
-                              alert(`Successfully upgraded to ${plan.name} plan!`)
-                              router.push('/dashboard')
-                            } else {
-                              const error = await response.json()
-                              alert(error.error || 'Failed to upgrade')
-                            }
-                          } catch (error) {
-                            alert('Failed to upgrade subscription')
-                          }
-                        }}
+                        onClick={() => handleUpgradeClick(plan.name.toLowerCase() as 'explorer' | 'adventurer')}
                       >
-                        {plan.cta}
+                        {getActionLabel(plan.name.toLowerCase() as 'explorer' | 'adventurer')} to {plan.name}
                       </Button>
                     )}
                   </div>
@@ -326,6 +314,14 @@ export default function PricingPage() {
           </Card>
         </div>
       </div>
+      <UpgradeModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        currentPlan={currentPlan}
+        reason={upgradeReason}
+        targetPlan={upgradePlan || undefined}
+        billingPeriod={billingPeriod}
+      />
     </div>
   )
 } 

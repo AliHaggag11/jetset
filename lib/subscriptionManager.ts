@@ -1,11 +1,15 @@
 import { supabase } from './supabase'
 
 export type PlanType = 'free' | 'explorer' | 'adventurer'
+export type PeriodType = 'monthly' | 'annual'
 
 export interface SubscriptionPlan {
   id: string
   name: string
-  price: number
+  price: {
+    monthly: number
+    annual: number
+  }
   features: {
     trips_per_month: number
     regenerations_per_month: number
@@ -25,7 +29,10 @@ export const subscriptionManager = {
     free: {
       id: 'free',
       name: 'Free',
-      price: 0,
+      price: {
+        monthly: 0,
+        annual: 0
+      },
       features: {
         trips_per_month: 1,
         regenerations_per_month: 1,
@@ -41,7 +48,10 @@ export const subscriptionManager = {
     explorer: {
       id: 'explorer',
       name: 'Explorer',
-      price: 9.99,
+      price: {
+        monthly: 9.99,
+        annual: 99.99 // ~17% discount
+      },
       features: {
         trips_per_month: 5,
         regenerations_per_month: -1, // unlimited
@@ -57,7 +67,10 @@ export const subscriptionManager = {
     adventurer: {
       id: 'adventurer',
       name: 'Adventurer',
-      price: 19.99,
+      price: {
+        monthly: 19.99,
+        annual: 199.99 // ~17% discount
+      },
       features: {
         trips_per_month: -1, // unlimited
         regenerations_per_month: -1, // unlimited
@@ -72,8 +85,26 @@ export const subscriptionManager = {
     }
   } as const,
 
-  // Get user's current subscription
+  // Get user's current subscription (any status)
   async getCurrentSubscription(userId: string) {
+    const { data, error } = await supabase
+      .from('user_subscriptions')
+      .select('*')
+      .eq('user_id', userId)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null // No subscription found
+      }
+      throw new Error(`Failed to fetch subscription: ${error.message}`)
+    }
+
+    return data
+  },
+
+  // Get user's active subscription (for feature checks)
+  async getActiveSubscription(userId: string) {
     const { data, error } = await supabase
       .from('user_subscriptions')
       .select('*')
@@ -85,23 +116,32 @@ export const subscriptionManager = {
       if (error.code === 'PGRST116') {
         return null // No active subscription
       }
-      throw new Error(`Failed to fetch subscription: ${error.message}`)
+      throw new Error(`Failed to fetch active subscription: ${error.message}`)
     }
 
     return data
   },
 
   // Create or update subscription
-  async updateSubscription(userId: string, plan: PlanType, supabaseClient = supabase) {
+  async updateSubscription(
+    userId: string, 
+    plan: PlanType, 
+    period: PeriodType = 'monthly',
+    autoRenewal: boolean = true,
+    supabaseClient = supabase
+  ) {
     const now = new Date()
-    const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000) // 30 days
+    const daysInPeriod = period === 'annual' ? 365 : 30
+    const periodEnd = new Date(now.getTime() + daysInPeriod * 24 * 60 * 60 * 1000)
 
     const { data, error } = await supabaseClient
       .from('user_subscriptions')
       .upsert({
         user_id: userId,
         plan,
-        status: 'active',
+        period,
+        auto_renewal: autoRenewal,
+        status: plan === 'free' ? 'inactive' : 'active',
         current_period_start: now.toISOString(),
         current_period_end: periodEnd.toISOString(),
         updated_at: now.toISOString()
@@ -118,9 +158,89 @@ export const subscriptionManager = {
     return data
   },
 
+  // Update subscription period
+  async updateSubscriptionPeriod(
+    userId: string, 
+    period: PeriodType,
+    supabaseClient = supabase
+  ) {
+    // Check if user has any subscription (not just active)
+    const { data: existingSub, error: fetchError } = await supabaseClient
+      .from('user_subscriptions')
+      .select('*')
+      .eq('user_id', userId)
+      .single()
+
+    if (fetchError) {
+      if (fetchError.code === 'PGRST116') {
+        throw new Error('No subscription found')
+      }
+      throw new Error(`Failed to fetch subscription: ${fetchError.message}`)
+    }
+
+    const now = new Date()
+    const daysInPeriod = period === 'annual' ? 365 : 30
+    const periodEnd = new Date(now.getTime() + daysInPeriod * 24 * 60 * 60 * 1000)
+
+    const { data, error } = await supabaseClient
+      .from('user_subscriptions')
+      .update({
+        period,
+        current_period_start: now.toISOString(),
+        current_period_end: periodEnd.toISOString(),
+        updated_at: now.toISOString()
+      })
+      .eq('user_id', userId)
+      .select()
+      .single()
+
+    if (error) {
+      throw new Error(`Failed to update subscription period: ${error.message}`)
+    }
+
+    return data
+  },
+
+  // Toggle auto-renewal
+  async toggleAutoRenewal(
+    userId: string, 
+    autoRenewal: boolean,
+    supabaseClient = supabase
+  ) {
+    // Check if user has any subscription (not just active)
+    const { data: existingSub, error: fetchError } = await supabaseClient
+      .from('user_subscriptions')
+      .select('*')
+      .eq('user_id', userId)
+      .single()
+
+    if (fetchError) {
+      if (fetchError.code === 'PGRST116') {
+        throw new Error('No subscription found')
+      }
+      throw new Error(`Failed to fetch subscription: ${fetchError.message}`)
+    }
+
+    const { data, error } = await supabaseClient
+      .from('user_subscriptions')
+      .update({
+        auto_renewal: autoRenewal,
+        updated_at: new Date().toISOString()
+      })
+      .eq('user_id', userId)
+      .select()
+      .single()
+
+    if (error) {
+      throw new Error(`Failed to update auto-renewal: ${error.message}`)
+    }
+
+    return data
+  },
+
   // Check if user has access to a specific feature
   async hasFeatureAccess(userId: string, feature: keyof SubscriptionPlan['features']): Promise<boolean> {
-    const subscription = await this.getCurrentSubscription(userId)
+    const subscription = await this.getActiveSubscription(userId)
     const plan: PlanType = (subscription?.plan as PlanType) || 'free'
     const planFeatures = this.plans[plan].features
 
@@ -137,7 +257,7 @@ export const subscriptionManager = {
 
   // Get feature limit for user (only for numeric features)
   async getFeatureLimit(userId: string, feature: 'trips_per_month' | 'regenerations_per_month' | 'max_trip_duration'): Promise<number> {
-    const subscription = await this.getCurrentSubscription(userId)
+    const subscription = await this.getActiveSubscription(userId)
     const plan: PlanType = (subscription?.plan as PlanType) || 'free'
     const planFeatures = this.plans[plan].features
 
@@ -146,7 +266,7 @@ export const subscriptionManager = {
 
   // Check if user can perform an action
   async canPerformAction(userId: string, action: string, currentUsage: number = 0): Promise<{ allowed: boolean; reason?: string; limit?: number }> {
-    const subscription = await this.getCurrentSubscription(userId)
+    const subscription = await this.getActiveSubscription(userId)
     const plan: PlanType = (subscription?.plan as PlanType) || 'free'
     const planFeatures = this.plans[plan].features
 
@@ -228,7 +348,10 @@ export const subscriptionManager = {
           'Priority support',
           'Advanced trip preferences'
         ],
-        price: '$9.99/month'
+        price: {
+          monthly: '$9.99/month',
+          annual: '$99.99/year (save 17%)'
+        }
       },
       explorer: {
         nextPlan: 'adventurer',
@@ -240,7 +363,10 @@ export const subscriptionManager = {
           'Priority phone support',
           'Trip templates'
         ],
-        price: '$19.99/month'
+        price: {
+          monthly: '$19.99/month',
+          annual: '$199.99/year (save 17%)'
+        }
       },
       adventurer: {
         nextPlan: null,
@@ -252,25 +378,38 @@ export const subscriptionManager = {
     return recommendations[currentPlan]
   },
 
+  // Get current price for a plan and period
+  getPlanPrice(plan: PlanType, period: PeriodType = 'monthly'): number {
+    return this.plans[plan].price[period]
+  },
+
+  // Get formatted price string for a plan and period
+  getFormattedPrice(plan: PlanType, period: PeriodType = 'monthly'): string {
+    const price = this.getPlanPrice(plan, period)
+    if (price === 0) return 'Free'
+    
+    if (period === 'annual') {
+      return `$${price}/year`
+    }
+    return `$${price}/month`
+  },
+
   // Validate trip duration based on plan
   async validateTripDuration(userId: string, startDate: string, endDate: string): Promise<{ valid: boolean; reason?: string }> {
     const start = new Date(startDate)
     const end = new Date(endDate)
     const duration = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-
-    const subscription = await this.getCurrentSubscription(userId)
+    const subscription = await this.getActiveSubscription(userId)
     const plan: PlanType = (subscription?.plan as PlanType) || 'free'
     const maxDuration = this.plans[plan].features.max_trip_duration
-
+    
     if (maxDuration === -1) return { valid: true }
-
     if (duration > maxDuration) {
       return { 
         valid: false, 
         reason: `Your ${plan} plan allows trips up to ${maxDuration} days. This trip is ${duration} days. Upgrade your plan for longer trips.` 
       }
     }
-
     return { valid: true }
   }
 } 
