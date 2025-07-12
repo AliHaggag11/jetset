@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Afacad } from "next/font/google";
 import "./globals.css";
 import Header from "@/components/layout/header";
 import Footer from "@/components/layout/footer";
 import { AuthProvider } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme-provider";
 
-const inter = Inter({ subsets: ["latin"] });
+const afacad = Afacad({ 
+  subsets: ["latin"],
+  variable: "--font-afacad",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "JetSet - AI Travel Planner",
@@ -69,7 +73,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="h-full scroll-smooth">
-      <body className={`${inter.className} h-full flex flex-col antialiased`}>
+      <body className={`${afacad.variable} h-full flex flex-col antialiased`}>
         <ThemeProvider>
           <AuthProvider>
             <Header />

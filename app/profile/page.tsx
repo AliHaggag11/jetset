@@ -286,8 +286,7 @@ export default function ProfilePage() {
 
   const handleSignOutAll = async () => {
     try {
-      await supabase.auth.signOut()
-      router.push('/login')
+      await signOut('/')
     } catch (err: any) {
       setError('Failed to sign out from all devices')
     }
@@ -366,8 +365,7 @@ export default function ProfilePage() {
         body: JSON.stringify({ userId: user?.id }),
       })
       if (response.ok) {
-        await signOut()
-        router.push('/')
+        await signOut('/')
       } else {
         const data = await response.json()
         setPasswordError(data.error || 'Failed to delete account')

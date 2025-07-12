@@ -10,7 +10,7 @@ interface AuthContextType {
   loading: boolean
   signIn: (email: string, password: string) => Promise<{ error: any }>
   signUp: (email: string, password: string) => Promise<{ error: any }>
-  signOut: () => Promise<void>
+  signOut: (redirectTo?: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -56,8 +56,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error }
   }
 
-  const signOut = async () => {
+  const signOut = async (redirectTo?: string) => {
     await supabase.auth.signOut()
+    if (redirectTo) {
+      window.location.href = redirectTo
+    }
   }
 
   const value = {

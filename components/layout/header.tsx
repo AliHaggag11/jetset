@@ -58,12 +58,14 @@ export default function Header() {
             >
               My Trips
             </Link>
-            <Link 
-              href="/pricing" 
-              className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Pricing
-            </Link>
+            {!user && (
+              <Link 
+                href="/pricing" 
+                className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Pricing
+              </Link>
+            )}
           </nav>
 
           {/* Desktop Navigation & Auth - replaced by Avatar Menu */}
@@ -89,10 +91,12 @@ export default function Header() {
                     </div>
                     <Link href="/plan" className="px-3 py-2 rounded hover:bg-accent text-sm text-muted-foreground hover:text-foreground transition-colors">Plan Trip</Link>
                     <Link href="/dashboard" className="px-3 py-2 rounded hover:bg-accent text-sm text-muted-foreground hover:text-foreground transition-colors">My Trips</Link>
-                    <Link href="/pricing" className="px-3 py-2 rounded hover:bg-accent text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</Link>
+                    {!user && (
+                      <Link href="/pricing" className="px-3 py-2 rounded hover:bg-accent text-sm text-muted-foreground hover:text-foreground transition-colors">Pricing</Link>
+                    )}
                     <Link href="/profile" className="px-3 py-2 rounded hover:bg-accent text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"><User className="w-4 h-4" /> Profile</Link>
                     <div className="px-3 py-2"><ThemeToggle /></div>
-                    <button onClick={signOut} className="px-3 py-2 rounded hover:bg-accent text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"><LogOut className="w-4 h-4" /> Sign out</button>
+                    <button onClick={() => signOut('/')} className="px-3 py-2 rounded hover:bg-accent text-sm text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2"><LogOut className="w-4 h-4" /> Sign out</button>
                   </PopoverPrimitive.Content>
                 </PopoverPrimitive.Portal>
               </PopoverPrimitive.Root>
@@ -139,13 +143,15 @@ export default function Header() {
               >
                 My Trips
               </Link>
-              <Link
-                href="/pricing"
-                className="text-sm font-medium text-muted-foreground hover:text-foreground py-2"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                Pricing
-              </Link>
+              {!user && (
+                <Link
+                  href="/pricing"
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground py-2"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Pricing
+                </Link>
+              )}
               <div className="pt-4 border-t border-border space-y-3">
                 {user ? (
                   <>
@@ -170,7 +176,7 @@ export default function Header() {
                     <Button 
                       variant="ghost" 
                       size="sm" 
-                      onClick={() => { setIsMenuOpen(false); signOut(); }}
+                      onClick={() => { setIsMenuOpen(false); signOut('/'); }}
                       className="w-full justify-start"
                     >
                       <LogOut className="w-4 h-4 mr-2" />
