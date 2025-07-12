@@ -1,5 +1,7 @@
 import { supabase } from './supabase'
 
+export type PlanType = 'free' | 'explorer' | 'adventurer'
+
 export interface SubscriptionPlan {
   id: string
   name: string
@@ -68,7 +70,7 @@ export const subscriptionManager = {
         custom_preferences: true
       }
     }
-  },
+  } as const,
 
   // Get user's current subscription
   async getCurrentSubscription(userId: string) {
@@ -90,7 +92,7 @@ export const subscriptionManager = {
   },
 
   // Create or update subscription
-  async updateSubscription(userId: string, plan: 'free' | 'explorer' | 'adventurer') {
+  async updateSubscription(userId: string, plan: PlanType) {
     const now = new Date()
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000) // 30 days
 
@@ -119,16 +121,24 @@ export const subscriptionManager = {
   // Check if user has access to a specific feature
   async hasFeatureAccess(userId: string, feature: keyof SubscriptionPlan['features']): Promise<boolean> {
     const subscription = await this.getCurrentSubscription(userId)
-    const plan = subscription?.plan || 'free'
+    const plan: PlanType = (subscription?.plan as PlanType) || 'free'
     const planFeatures = this.plans[plan].features
 
-    return planFeatures[feature] === true || planFeatures[feature] === -1 || planFeatures[feature] > 0
+    const value = planFeatures[feature]
+    
+    // Handle numeric features (trips_per_month, regenerations_per_month, max_trip_duration)
+    if (typeof value === 'number') {
+      return value === -1 || value > 0
+    }
+    
+    // Handle boolean features (export, priority_support, etc.)
+    return value === true
   },
 
-  // Get feature limit for user
-  async getFeatureLimit(userId: string, feature: keyof SubscriptionPlan['features']): Promise<number> {
+  // Get feature limit for user (only for numeric features)
+  async getFeatureLimit(userId: string, feature: 'trips_per_month' | 'regenerations_per_month' | 'max_trip_duration'): Promise<number> {
     const subscription = await this.getCurrentSubscription(userId)
-    const plan = subscription?.plan || 'free'
+    const plan: PlanType = (subscription?.plan as PlanType) || 'free'
     const planFeatures = this.plans[plan].features
 
     return planFeatures[feature]
@@ -137,7 +147,7 @@ export const subscriptionManager = {
   // Check if user can perform an action
   async canPerformAction(userId: string, action: string, currentUsage: number = 0): Promise<{ allowed: boolean; reason?: string; limit?: number }> {
     const subscription = await this.getCurrentSubscription(userId)
-    const plan = subscription?.plan || 'free'
+    const plan: PlanType = (subscription?.plan as PlanType) || 'free'
     const planFeatures = this.plans[plan].features
 
     switch (action) {
@@ -207,7 +217,7 @@ export const subscriptionManager = {
   },
 
   // Get upgrade recommendations
-  getUpgradeRecommendations(currentPlan: 'free' | 'explorer' | 'adventurer') {
+  getUpgradeRecommendations(currentPlan: PlanType) {
     const recommendations = {
       free: {
         nextPlan: 'explorer',
@@ -249,7 +259,7 @@ export const subscriptionManager = {
     const duration = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
 
     const subscription = await this.getCurrentSubscription(userId)
-    const plan = subscription?.plan || 'free'
+    const plan: PlanType = (subscription?.plan as PlanType) || 'free'
     const maxDuration = this.plans[plan].features.max_trip_duration
 
     if (maxDuration === -1) return { valid: true }

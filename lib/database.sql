@@ -178,3 +178,19 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user(); 
+
+-- User profile table for additional info
+create table if not exists profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  first_name text,
+  last_name text,
+  profile_image_url text,
+  theme text default 'system' check (theme in ('light', 'dark', 'system')),
+  language text default 'en' check (language in ('en', 'es', 'fr', 'de')),
+  notification_preferences jsonb default '{"email": true, "product": true, "marketing": false}'::jsonb
+);
+
+alter table profiles enable row level security;
+drop policy if exists "Users can manage their own profile" on profiles;
+create policy "Users can manage their own profile" on profiles
+  for all using (auth.uid() = id) with check (auth.uid() = id); 

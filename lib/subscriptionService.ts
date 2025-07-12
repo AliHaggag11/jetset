@@ -188,5 +188,70 @@ export const subscriptionService = {
     }
 
     return features[plan]
+  },
+
+  // Get user profile
+  async getUserProfile(userId: string) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single()
+    if (error) return null
+    return data
+  },
+
+  // Update user profile
+  async updateUserProfile(userId: string, updates: { first_name?: string; last_name?: string; profile_image_url?: string }) {
+    const { data, error } = await supabase
+      .from('profiles')
+      .upsert({ id: userId, ...updates })
+      .select()
+      .single()
+    if (error) throw new Error(error.message)
+    return data
+  },
+
+  // Delete user profile
+  async deleteUserProfile(userId: string) {
+    // Delete from profiles table
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', userId)
+    
+    if (profileError) {
+      console.error('Error deleting profile:', profileError)
+    }
+
+    // Delete from user_subscriptions table
+    const { error: subError } = await supabase
+      .from('user_subscriptions')
+      .delete()
+      .eq('user_id', userId)
+    
+    if (subError) {
+      console.error('Error deleting subscription:', subError)
+    }
+
+    // Delete from trips table
+    const { error: tripsError } = await supabase
+      .from('trips')
+      .delete()
+      .eq('user_id', userId)
+    
+    if (tripsError) {
+      console.error('Error deleting trips:', tripsError)
+    }
+
+    // Delete from ai_requests table
+    const { error: aiError } = await supabase
+      .from('ai_requests')
+      .delete()
+      .eq('user_id', userId)
+    
+    if (aiError) {
+      console.error('Error deleting AI requests:', aiError)
+    }
   }
 } 

@@ -3,13 +3,29 @@
 import { Button } from '@/components/ui/button'
 import { Plane, Menu, X, User, LogOut } from 'lucide-react'
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '@/lib/auth'
 import SubscriptionStatus from '@/components/subscription-status'
+import { subscriptionService } from '@/lib/subscriptionService'
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const { user, signOut } = useAuth()
+  const [displayName, setDisplayName] = useState<string>('')
+
+  useEffect(() => {
+    async function fetchName() {
+      if (user) {
+        const profile = await subscriptionService.getUserProfile(user.id)
+        if (profile?.first_name || profile?.last_name) {
+          setDisplayName(`${profile.first_name || ''} ${profile.last_name || ''}`.trim() || user.email || '')
+        } else {
+          setDisplayName(user.email || '')
+        }
+      }
+    }
+    fetchName()
+  }, [user])
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/95">
@@ -50,8 +66,12 @@ export default function Header() {
             {user ? (
               <div className="flex items-center space-x-4">
                 <SubscriptionStatus />
+                <Link href="/profile" className="flex items-center space-x-1 text-gray-600 hover:text-gray-900 text-sm font-medium">
+                  <User className="w-4 h-4" />
+                  <span>Profile</span>
+                </Link>
                 <span className="text-sm text-gray-600">
-                  {user.email}
+                  {displayName}
                 </span>
                 <Button 
                   variant="ghost" 
@@ -118,8 +138,12 @@ export default function Header() {
                 {user ? (
                   <>
                     <div className="text-sm text-gray-600 py-2">
-                      {user.email}
+                      {displayName}
                     </div>
+                    <Link href="/profile" className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 py-2">
+                      <User className="w-4 h-4" />
+                      <span>Profile</span>
+                    </Link>
                     <Button 
                       variant="ghost" 
                       size="sm" 

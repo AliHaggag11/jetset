@@ -19,12 +19,19 @@ import Link from 'next/link'
 import { useAuth } from '@/lib/auth'
 import { tripService, type Trip } from '@/lib/tripService'
 import UsageDashboard from '@/components/usage-dashboard'
+import UpgradeModal from '@/components/upgrade-modal'
+import { subscriptionService } from '@/lib/subscriptionService'
+import { subscriptionManager } from '@/lib/subscriptionManager'
 
 export default function DashboardPage() {
   const [trips, setTrips] = useState<Trip[]>([])
   const [loading, setLoading] = useState(true)
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [upgradeReason, setUpgradeReason] = useState('')
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'explorer' | 'adventurer'>('free')
+  const [redirecting, setRedirecting] = useState(false)
 
   // Redirect to login if not authenticated
   if (!authLoading && !user) {
@@ -35,6 +42,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (user) {
       loadTrips()
+      fetchPlan()
     }
   }, [user])
 
@@ -84,6 +92,29 @@ export default function DashboardPage() {
     return personaMap[persona] || persona
   }
 
+  const fetchPlan = async () => {
+    if (user) {
+      const sub = await subscriptionService.getUserSubscription(user.id)
+      setCurrentPlan(sub?.plan || 'free')
+    }
+  }
+
+  const handleNewTrip = async () => {
+    if (!user) return
+    const usage = await subscriptionService.getUserUsage(user.id)
+    const canCreate = await subscriptionManager.canPerformAction(
+      user.id,
+      'create_trip',
+      usage.trips_created
+    )
+    if (!canCreate.allowed) {
+      setUpgradeReason(canCreate.reason || 'You have reached your trip limit.')
+      setShowUpgradeModal(true)
+      return
+    }
+    router.push('/plan')
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -106,11 +137,9 @@ export default function DashboardPage() {
               Manage your travel plans and itineraries
             </p>
           </div>
-          <Button asChild className="flex items-center space-x-2">
-            <Link href="/plan">
-              <Plus className="w-4 h-4" />
-              <span>New Trip</span>
-            </Link>
+          <Button onClick={handleNewTrip} className="flex items-center space-x-2">
+            <Plus className="w-4 h-4" />
+            <span>New Trip</span>
           </Button>
         </div>
 
@@ -240,6 +269,24 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+      <UpgradeModal
+        isOpen={showUpgradeModal}
+        onClose={() => {
+          setShowUpgradeModal(false);
+          setRedirecting(true);
+          router.push('/');
+        }}
+        currentPlan={currentPlan}
+        reason={upgradeReason}
+      />
+      {redirecting && (
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-white/60 backdrop-blur-sm">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-lg font-semibold">Redirecting...</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 } 

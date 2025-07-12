@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import TripWizard, { TripFormData } from '@/components/trip-wizard/trip-wizard'
 import { tripService } from '@/lib/tripService'
@@ -8,11 +8,40 @@ import { useAuth } from '@/lib/auth'
 import { subscriptionService } from '@/lib/subscriptionService'
 import { subscriptionManager } from '@/lib/subscriptionManager'
 import type { TripData } from '@/lib/types'
+import UpgradeModal from '@/components/upgrade-modal'
 
 export default function PlanPage() {
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [upgradeReason, setUpgradeReason] = useState('')
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'explorer' | 'adventurer'>('free')
+  const [canCreateTrip, setCanCreateTrip] = useState(true)
+  const [redirecting, setRedirecting] = useState(false)
   const { user, loading: authLoading } = useAuth()
+
+  useEffect(() => {
+    async function checkTripLimit() {
+      if (user) {
+        const sub = await subscriptionService.getUserSubscription(user.id)
+        setCurrentPlan(sub?.plan || 'free')
+        const usage = await subscriptionService.getUserUsage(user.id)
+        const canCreate = await subscriptionManager.canPerformAction(
+          user.id,
+          'create_trip',
+          usage.trips_created
+        )
+        if (!canCreate.allowed) {
+          setUpgradeReason(canCreate.reason || 'You have reached your trip limit.')
+          setShowUpgradeModal(true)
+          setCanCreateTrip(false)
+        } else {
+          setCanCreateTrip(true)
+        }
+      }
+    }
+    checkTripLimit()
+  }, [user])
 
   // Redirect to login if not authenticated
   if (!authLoading && !user) {
@@ -69,7 +98,27 @@ export default function PlanPage() {
           </p>
         </div>
         
-        <TripWizard onComplete={handleTripComplete} />
+        {canCreateTrip && (
+          <TripWizard onComplete={handleTripComplete} />
+        )}
+        <UpgradeModal
+          isOpen={showUpgradeModal}
+          onClose={() => {
+            setShowUpgradeModal(false);
+            setRedirecting(true);
+            router.push('/');
+          }}
+          currentPlan={currentPlan}
+          reason={upgradeReason}
+        />
+        {redirecting && (
+          <div className="fixed inset-0 flex items-center justify-center z-50 bg-white/60 backdrop-blur-sm">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-lg font-semibold">Redirecting...</p>
+            </div>
+          </div>
+        )}
         
         {isCreating && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

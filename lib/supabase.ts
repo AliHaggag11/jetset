@@ -190,6 +190,26 @@ export type Database = {
           created_at?: string
         }
       }
+      profiles: {
+        Row: {
+          id: string
+          first_name: string | null
+          last_name: string | null
+          profile_image_url: string | null
+        }
+        Insert: {
+          id: string
+          first_name?: string | null
+          last_name?: string | null
+          profile_image_url?: string | null
+        }
+        Update: {
+          id?: string
+          first_name?: string | null
+          last_name?: string | null
+          profile_image_url?: string | null
+        }
+      }
     }
   }
 } 
