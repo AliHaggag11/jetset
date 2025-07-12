@@ -1,6 +1,6 @@
 
 # 🧭 JetSet – AI Travel Planner SaaS
-### Stack: Next.js + Supabase + Gemini AI API
+### Stack: Next.js + Supabase + Groq AI API
 
 ---
 
@@ -11,7 +11,7 @@
 - [ ] Set up GitHub repo (monorepo or split)
 - [ ] Create a basic roadmap and milestones
 - [ ] Register domain and set up Vercel/Supabase projects
-- [ ] Get Gemini API key: https://ai.google.dev
+- [ ] Get Groq API key: https://console.groq.com/keys
 
 ---
 
@@ -26,7 +26,7 @@
 - [ ] Add environment config (.env.local)
   - `NEXT_PUBLIC_SUPABASE_URL=`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY=`
-  - `GEMINI_API_KEY=`
+  - `GROQ_API_KEY=`
 
 ---
 
@@ -93,15 +93,16 @@ create table ai_requests (
 
 ## 🧠 Phase 2: AI Integration
 
-### 🔹 3. Gemini AI Setup
+### 🔹 3. Groq AI Setup
 
-- [ ] Create `lib/gemini.ts`
-- [ ] Write generic `generateGeminiResponse(prompt: string): Promise<string>`
-- [ ] Create prompt templates:
-  - [ ] Itinerary generation
-  - [ ] Cost estimation
-  - [ ] Personality-based variation
-  - [ ] Group plan compromise
+- [x] Create `lib/groq.ts` (server-side AI)
+- [x] Create `lib/types.ts` (shared interfaces)
+- [x] Write generic `generateGroqResponse(prompt: string): Promise<string>`
+- [x] Create prompt templates:
+  - [x] Itinerary generation
+  - [x] Cost estimation
+  - [x] Personality-based variation
+  - [x] Group plan compromise
 
 ---
 
@@ -128,7 +129,7 @@ create table ai_requests (
 ### 🔹 6. Itinerary Page
 
 - [ ] Load trip + preferences
-- [ ] Build `generateItinerary()` call using Gemini
+- [x] Build `generateItinerary()` call using Groq
 - [ ] Display day-by-day itinerary using cards
 - [ ] Show estimated cost per day
 - [ ] Save itinerary JSON to Supabase
@@ -155,7 +156,7 @@ create table ai_requests (
 
 ### 🔹 9. AI Chat Assistant (Optional MVP+)
 
-- [ ] Simple chat UI with Gemini (Q&A about trip)
+- [ ] Simple chat UI with Groq (Q&A about trip)
 - [ ] Add chat context to AI prompts
 - [ ] Log prompt/response to `ai_requests` table
 
@@ -190,11 +191,11 @@ You are an expert full-stack developer assisting with building an AI-powered tra
 
 - Frontend: Next.js (App Router) with Tailwind CSS and shadcn/ui
 - Backend: Supabase (PostgreSQL, Auth)
-- AI: Gemini API (free tier)
+- AI: Groq API (free tier - 14,400 requests/day)
 
 The product lets users:
 - Create a trip with destination, dates, budget, and interests
-- Generate an AI-based itinerary using Gemini
+- Generate an AI-based itinerary using Groq
 - Estimate total trip cost
 - Get real-time deal alerts (future feature)
 - Save and view multiple trips
@@ -203,7 +204,7 @@ The product lets users:
 You will help with:
 - Writing clean TypeScript and React code
 - Integrating Supabase (Auth + DB) into frontend
-- Calling Gemini API securely and efficiently
+- Calling Groq API securely and efficiently
 - Building a trip wizard, itinerary viewer, and dashboard
 - Handling async flows, loading states, and edge cases
 - Following good UX, performance, and code quality practices
