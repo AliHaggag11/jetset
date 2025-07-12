@@ -1,6 +1,8 @@
 import Groq from 'groq-sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import type { TripData, ItineraryDay, Activity } from '@/lib/types'
+// @ts-expect-error: dirty-json has no types
+import dirtyJSON from 'dirty-json'
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY!,
@@ -32,7 +34,11 @@ function repairJSON(jsonString: string): string {
     .replace(/"link":\s*"[^"]*"([^}]*?)"currency":/g, '"link": "https://example.com"}, {"time": "12:00", "currency":')
     .replace(/"link":\s*"[^"]*"([^}]*?)"category":/g, '"link": "https://example.com"}, {"time": "12:00", "category":')
     
-    // Fix missing quotes around property names
+    // Fix missing quotes around property names - MORE AGGRESSIVE
+    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":') // Run twice to catch nested cases
+    
+    // Fix unquoted property names that might have been missed
     .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
     
     // Fix single quotes to double quotes
@@ -61,6 +67,58 @@ function repairJSON(jsonString: string): string {
   return repaired
 }
 
+function validateAndFixJSON(jsonString: string): string {
+  // First, try to find the JSON structure
+  let cleaned = jsonString
+  
+  // Remove any markdown formatting
+  cleaned = cleaned.replace(/```json\s*/g, '').replace(/```\s*$/g, '')
+  
+  // Find the JSON object/array
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/)
+  if (jsonMatch) {
+    cleaned = jsonMatch[0]
+  }
+  
+  // Apply aggressive property name quoting
+  cleaned = cleaned.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+  
+  // Fix common issues
+  cleaned = cleaned
+    .replace(/,\s*}/g, '}')
+    .replace(/,\s*]/g, ']')
+    .replace(/'/g, '"')
+    .replace(/\n/g, ' ')
+    .replace(/\r/g, ' ')
+    .replace(/\t/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  
+  return cleaned
+}
+
+function findDaysArray(obj: any): any[] | null {
+  if (!obj || typeof obj !== 'object') return null;
+  if (Array.isArray(obj)) {
+    // Check if this array looks like days (objects with 'day' or 'activities')
+    if (obj.length > 0 && typeof obj[0] === 'object' && (('day' in obj[0]) || ('activities' in obj[0]))) {
+      return obj;
+    }
+    // Otherwise, search each element
+    for (const el of obj) {
+      const found = findDaysArray(el);
+      if (found) return found;
+    }
+  } else {
+    for (const key of Object.keys(obj)) {
+      const val = obj[key];
+      const found = findDaysArray(val);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 function parseAIResponse(text: string, totalDays: number, startDate: Date, tripData: TripData): ItineraryDay[] {
   console.log('🔍 Attempting to parse AI response...')
   
@@ -79,8 +137,65 @@ function parseAIResponse(text: string, totalDays: number, startDate: Date, tripD
   let parseAttempts = [
     () => JSON.parse(jsonString),
     () => JSON.parse(repairJSON(jsonString)),
+    () => JSON.parse(validateAndFixJSON(jsonString)),
     () => JSON.parse(jsonString.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']')),
     () => JSON.parse(jsonString.replace(/[^\x20-\x7E]/g, '')),
+    // More aggressive repair attempts
+    () => JSON.parse(repairJSON(jsonString).replace(/,\s*}/g, '}').replace(/,\s*]/g, ']')),
+    () => JSON.parse(validateAndFixJSON(jsonString).replace(/,\s*}/g, '}').replace(/,\s*]/g, ']')),
+    () => JSON.parse(jsonString.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":').replace(/,\s*}/g, '}').replace(/,\s*]/g, ']')),
+    // Try to extract just the days array if the outer structure is broken
+    () => {
+      const daysMatch = jsonString.match(/"days"\s*:\s*\[([\s\S]*?)\]/)
+      if (daysMatch) {
+        return { days: JSON.parse(`[${daysMatch[1]}]`)}
+      }
+      throw new Error('No days array found')
+    },
+    // Try to extract days array with validation
+    () => {
+      const daysMatch = validateAndFixJSON(jsonString).match(/"days"\s*:\s*\[([\s\S]*?)\]/)
+      if (daysMatch) {
+        return { days: JSON.parse(`[${daysMatch[1]}]`)}
+      }
+      throw new Error('No days array found')
+    },
+    // Last resort: try to parse as array directly
+    () => {
+      const arrayMatch = jsonString.match(/\[([\s\S]*)\]/)
+      if (arrayMatch) {
+        return { days: JSON.parse(`[${arrayMatch[1]}]`)}
+      }
+      throw new Error('No array structure found')
+    },
+    // Final attempt: try to parse the entire validated string as array
+    () => {
+      const validated = validateAndFixJSON(jsonString)
+      if (validated.startsWith('[')) {
+        return { days: JSON.parse(validated) }
+      }
+      throw new Error('No valid array structure found')
+    },
+    // Last resort: try to extract individual day objects and reconstruct
+    () => {
+      const dayMatches = jsonString.match(/\{[^}]*"day"[^}]*\}/g)
+      if (dayMatches && dayMatches.length > 0) {
+        const days = dayMatches.map(dayStr => {
+          try {
+            return JSON.parse(validateAndFixJSON(dayStr))
+          } catch {
+            return null
+          }
+        }).filter(day => day !== null)
+        
+        if (days.length > 0) {
+          return { days }
+        }
+      }
+      throw new Error('Could not extract individual day objects')
+    },
+    // FINAL: Use dirty-json to parse anything
+    () => dirtyJSON.parse(jsonString)
   ]
   
   for (let i = 0; i < parseAttempts.length; i++) {
@@ -89,8 +204,10 @@ function parseAIResponse(text: string, totalDays: number, startDate: Date, tripD
       console.log(`✅ JSON parsed successfully on attempt ${i + 1}`)
       break
     } catch (error) {
-      console.log(`❌ Parse attempt ${i + 1} failed:`, error)
+      console.log(`❌ Parse attempt ${i + 1} failed:`, error instanceof Error ? error.message : String(error))
       if (i === parseAttempts.length - 1) {
+        console.log('🔍 Final JSON string that failed to parse:', jsonString.substring(0, 500) + '...')
+        console.log('🔍 Validated JSON string:', validateAndFixJSON(jsonString).substring(0, 500) + '...')
         throw new Error('All JSON parsing attempts failed')
       }
     }
@@ -100,17 +217,61 @@ function parseAIResponse(text: string, totalDays: number, startDate: Date, tripD
     throw new Error('Failed to parse JSON after all attempts')
   }
   
+  console.log('🔍 Parsed object type:', typeof parsed);
+  
+  // Handle case where dirty-json returns a string instead of parsed object
+  if (typeof parsed === 'string') {
+    console.log('🔍 dirty-json returned a string, attempting to parse it...');
+    try {
+      parsed = JSON.parse(parsed);
+      console.log('✅ Successfully parsed dirty-json string result');
+    } catch (error) {
+      console.log('❌ Failed to parse dirty-json string result:', error);
+      throw new Error('dirty-json returned unparseable string');
+    }
+  }
+  
+  console.log('🔍 Parsed object keys:', typeof parsed === 'object' ? Object.keys(parsed) : 'not an object');
+  console.log('🔍 Parsed object structure:', JSON.stringify(parsed, null, 2).substring(0, 500) + '...');
+  
   // Extract days from the parsed response
   let days: any[] = []
   if (Array.isArray(parsed)) {
+    console.log('✅ Found top-level array');
     days = parsed
   } else if (parsed.days && Array.isArray(parsed.days)) {
+    console.log('✅ Found parsed.days array');
     days = parsed.days
   } else if (parsed.itinerary && Array.isArray(parsed.itinerary)) {
+    console.log('✅ Found parsed.itinerary array');
     days = parsed.itinerary
-  } else {
-    console.log('❌ No days array found in parsed response')
-    throw new Error('No days array found in response')
+  } else if (typeof parsed === 'object' && parsed !== null) {
+    console.log('🔍 Searching object properties for arrays...');
+    // Try to find the first array property in the object
+    for (const key in parsed) {
+      console.log(`🔍 Checking property '${key}':`, typeof parsed[key], Array.isArray(parsed[key]));
+      if (Array.isArray(parsed[key])) {
+        console.log(`✅ Found array in property '${key}'`);
+        days = parsed[key]
+        break
+      }
+    }
+    // If still not found, do a deep search for a days-like array
+    if (!days || !Array.isArray(days) || days.length === 0) {
+      console.log('🔍 No direct array found, doing deep search...');
+      const found = findDaysArray(parsed);
+      if (found && Array.isArray(found) && found.length > 0) {
+        console.log('✅ Found days array via deep search');
+        days = found;
+      } else {
+        console.log('❌ Deep search found nothing');
+      }
+    }
+  }
+  if (!days || !Array.isArray(days) || days.length === 0) {
+    console.log('❌ No days array found in parsed response (even after deep search)');
+    console.log('🔍 Final parsed object:', JSON.stringify(parsed, null, 2).substring(0, 1000) + '...');
+    throw new Error('No days array found in response');
   }
   
   console.log(`📅 Found ${days.length} days in response`)
@@ -206,7 +367,9 @@ export async function POST(request: NextRequest) {
 
 Traveler interests: ${interests}
 
-IMPORTANT: Respond with ONLY valid JSON in this exact format:
+CRITICAL: You MUST respond with ONLY valid JSON. ALL property names MUST be in double quotes. NO additional text before or after the JSON.
+
+Required JSON format:
 {
   "days": [
     {
@@ -233,15 +396,18 @@ IMPORTANT: Respond with ONLY valid JSON in this exact format:
   ]
 }
 
-Requirements:
+JSON RULES:
+- ALL property names MUST be in double quotes: "day", "date", "activities", etc.
+- ALL string values MUST be in double quotes
+- NO trailing commas
+- NO comments or extra text
 - Include exactly ${totalDays} days
 - Each day should have 3-4 activities
 - Use realistic costs within the budget
-- Include specific locations and times
 - Focus on the traveler's interests: ${interests}
 - Make activities suitable for ${tripData.persona} travelers${cityBreakdown}
 
-Respond with ONLY the JSON, no additional text.`
+Respond with ONLY the JSON object, nothing else.`
 
     console.log('🤖 Generating AI itinerary...')
     const completion = await groq.chat.completions.create({
@@ -262,9 +428,11 @@ Respond with ONLY the JSON, no additional text.`
     
     // Try to parse the real AI response
     let generatedDays: ItineraryDay[] = []
+    let isAIGenerated = false
     try {
       generatedDays = parseAIResponse(text, totalDays, startDate, tripData)
       console.log(`✅ Successfully parsed ${generatedDays.length} days from AI response`)
+      isAIGenerated = true
     } catch (error) {
       console.error('❌ Failed to parse AI response:', error)
       
@@ -492,7 +660,7 @@ Respond with ONLY the JSON, no additional text.`
       totalDays: totalDays,
       generatedDays: generatedDays.length,
       isComplete: generatedDays.length === totalDays,
-      isAIGenerated: generatedDays.length > 0 && generatedDays[0].activities.length > 0
+      isAIGenerated: isAIGenerated
     })
     
   } catch (error) {
