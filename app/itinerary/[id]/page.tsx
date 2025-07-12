@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Clock, MapPin, DollarSign, Calendar, RefreshCw, Share2, Download, ExternalLink, Users } from 'lucide-react'
+import { Clock, MapPin, DollarSign, Calendar, RefreshCw, Share2, Download, ExternalLink, Users, Cloud } from 'lucide-react'
 import type { TripData, ItineraryDay } from '@/lib/types'
 import ReactCountryFlag from 'react-country-flag'
 import { fetchUnsplashImage } from '@/lib/unsplash'
@@ -14,6 +14,9 @@ import { useAuth } from '@/lib/auth'
 import { subscriptionService } from '@/lib/subscriptionService'
 import { subscriptionManager } from '@/lib/subscriptionManager'
 import UpgradeModal from '@/components/upgrade-modal'
+import { getWeatherForecast, type WeatherForecast } from '@/lib/weather'
+import { WeatherCard } from '@/components/weather-card'
+import { WeatherOverview } from '@/components/weather-overview'
 
 // Helper to guess country code from destination string
 function guessCountryCode(destination: string): string {
@@ -143,6 +146,9 @@ export default function ItineraryPage() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [upgradeReason, setUpgradeReason] = useState('')
   const [currentPlan, setCurrentPlan] = useState<'free' | 'explorer' | 'adventurer'>('free')
+  const [weather, setWeather] = useState<WeatherForecast | null>(null)
+  const [weatherLoading, setWeatherLoading] = useState(false)
+  const [showWeather, setShowWeather] = useState(false)
 
   // Redirect to login if not authenticated
   if (!authLoading && !user) {
@@ -191,6 +197,24 @@ export default function ItineraryPage() {
     } catch (error) {
       console.error('Error loading trip:', error)
       router.push('/dashboard')
+    }
+  }
+
+  const fetchWeatherData = async () => {
+    if (!trip) return
+    
+    setWeatherLoading(true)
+    try {
+      const weatherData = await getWeatherForecast(
+        trip.destination,
+        trip.start_date,
+        trip.end_date
+      )
+      setWeather(weatherData)
+    } catch (error) {
+      console.error('Error fetching weather:', error)
+    } finally {
+      setWeatherLoading(false)
     }
   }
 
@@ -379,7 +403,7 @@ export default function ItineraryPage() {
               {trip.persona && <span className="ml-2">({trip.persona})</span>}
             </div>
           </div>
-          <div className="flex space-x-2 mt-6 md:mt-0">
+          <div className="flex flex-col md:flex-row gap-2 md:gap-4 mt-6 md:mt-0">
             <Button
               variant="outline"
               onClick={async () => {
@@ -398,6 +422,22 @@ export default function ItineraryPage() {
             >
               <RefreshCw className={`w-4 h-4 ${isGenerating ? 'animate-spin' : ''}`} />
               <span className="text-gray-900">Regenerate</span>
+            </Button>
+            <Button 
+              variant="outline" 
+              className="flex items-center space-x-2 bg-white/80 hover:bg-white"
+              onClick={() => {
+                if (!weather) {
+                  fetchWeatherData()
+                }
+                setShowWeather(!showWeather)
+              }}
+              disabled={weatherLoading}
+            >
+              <Cloud className={`w-4 h-4 ${weatherLoading ? 'animate-spin' : ''}`} />
+              <span className="text-gray-900">
+                {weatherLoading ? 'Loading...' : showWeather ? 'Hide Weather' : 'Show Weather'}
+              </span>
             </Button>
             <Button variant="outline" className="flex items-center space-x-2 bg-white/80 hover:bg-white">
               <Share2 className="w-4 h-4 text-gray-900" />
@@ -430,20 +470,20 @@ export default function ItineraryPage() {
         <div className="relative z-30 w-full max-w-3xl mx-auto px-4 pb-0 -mb-16">
           <Card className="shadow-xl">
             <CardContent className="pt-6 pb-2">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-600">{itinerary.length}</div>
-                  <div className="text-sm text-gray-600">Days</div>
+              <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-gray-200 gap-0 bg-white rounded-xl">
+                <div className="text-center py-2 md:py-0">
+                  <div className="text-2xl font-semibold text-gray-900">{itinerary.length}</div>
+                  <div className="text-sm text-gray-500">Days</div>
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">${totalCost}</div>
-                  <div className="text-sm text-gray-600">Estimated Total</div>
+                <div className="text-center py-2 md:py-0">
+                  <div className="text-2xl font-semibold text-gray-900">${totalCost}</div>
+                  <div className="text-sm text-gray-500">Estimated Total</div>
                 </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-600">
+                <div className="text-center py-2 md:py-0">
+                  <div className="text-2xl font-semibold text-gray-900">
                     {itinerary.reduce((sum, day) => sum + day.activities.length, 0)}
                   </div>
-                  <div className="text-sm text-gray-600">Activities</div>
+                  <div className="text-sm text-gray-500">Activities</div>
                 </div>
               </div>
             </CardContent>
@@ -452,6 +492,24 @@ export default function ItineraryPage() {
       </section>
       {/* END HERO SECTION */}
       <div className="container mx-auto px-4 max-w-4xl pt-24 pb-8">
+        {/* Weather Overview */}
+        {showWeather && (
+          <div className="mb-6">
+            {weatherLoading ? (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                    <p className="text-sm text-gray-600">Loading weather forecast...</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : weather ? (
+              <WeatherOverview weather={weather} />
+            ) : null}
+          </div>
+        )}
+
         {/* Incomplete Itinerary Warning */}
         {isIncomplete && (
           <Card className="mb-6 border-orange-200 bg-orange-50">
@@ -509,84 +567,96 @@ export default function ItineraryPage() {
         {/* Itinerary */}
         {itinerary.length > 0 && (
           <div className="space-y-6">
-            {itinerary.map((day, index) => (
-              <Card key={index}>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-xl">
-                        Day {day.day} - {formatDate(day.date)}
-                      </CardTitle>
-                      {(day as any).city && (
-                        <p className="text-sm text-gray-600 mt-1 flex items-center">
-                          <MapPin className="w-3 h-3 mr-1" />
-                          {(day as any).city}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Badge variant="secondary" className="flex items-center space-x-1">
-                        <DollarSign className="w-3 h-3" />
-                        <span>${day.estimatedCost}</span>
-                      </Badge>
-                      <Badge variant="outline" className="flex items-center space-x-1">
-                        <span>{day.activities.length} activities</span>
-                      </Badge>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {day.activities.map((activity, activityIndex) => (
-                      <div key={activityIndex} className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                        <div className="flex-shrink-0">
-                          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                            <span className="text-lg">{getCategoryIcon(activity.category)}</span>
-                          </div>
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="font-semibold text-gray-900">{activity.title}</h4>
-                            <div className="flex items-center space-x-2">
-                              <Badge variant="outline" className="flex items-center space-x-1">
-                                <Clock className="w-3 h-3" />
-                                <span>{activity.time}</span>
-                              </Badge>
-                              <Badge variant="outline" className="flex items-center space-x-1">
-                                <Users className="w-3 h-3" />
-                                <span>${activity.pricePerPerson || activity.cost}/pp</span>
-                              </Badge>
-                              <Badge variant="outline" className="flex items-center space-x-1">
-                                <DollarSign className="w-3 h-3" />
-                                <span>Total: ${activity.cost}</span>
-                              </Badge>
-                            </div>
-                          </div>
-                          <p className="text-gray-600 mb-3">{activity.description}</p>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center space-x-1 text-sm text-gray-500">
-                              <MapPin className="w-3 h-3" />
-                              <span>{activity.location}</span>
-                            </div>
-                            {activity.link && (
-                              <a 
-                                href={activity.link} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center space-x-1 text-blue-600 hover:text-blue-800 text-sm font-medium"
-                              >
-                                <span>Book Now</span>
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
-                            )}
-                          </div>
-                        </div>
+            {itinerary.map((day, index) => {
+              // Find weather data for this day
+              const dayWeather = weather?.forecast.find(w => w.date === day.date)
+              
+              return (
+                <Card key={index}>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-xl">
+                          Day {day.day} - {formatDate(day.date)}
+                        </CardTitle>
+                        {(day as any).city && (
+                          <p className="text-sm text-gray-600 mt-1 flex items-center">
+                            <MapPin className="w-3 h-3 mr-1" />
+                            {(day as any).city}
+                          </p>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                      <div className="flex items-center space-x-2">
+                        <Badge variant="secondary" className="flex items-center space-x-1">
+                          <DollarSign className="w-3 h-3" />
+                          <span>${day.estimatedCost}</span>
+                        </Badge>
+                        <Badge variant="outline" className="flex items-center space-x-1">
+                          <span>{day.activities.length} activities</span>
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {/* Weather Card for this day */}
+                    {showWeather && dayWeather && (
+                      <div className="mb-6">
+                        <WeatherCard weather={dayWeather} showAdvice={true} />
+                      </div>
+                    )}
+                    
+                    <div className="space-y-4">
+                      {day.activities.map((activity, activityIndex) => (
+                        <div key={activityIndex} className="flex items-start space-x-4 p-4 bg-white rounded-lg border border-gray-200">
+                          <div className="flex-shrink-0">
+                            <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                              <span className="text-lg">{getCategoryIcon(activity.category)}</span>
+                            </div>
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="font-medium text-gray-900">{activity.title}</h4>
+                              <div className="flex items-center space-x-2">
+                                <Badge variant="outline" className="flex items-center space-x-1">
+                                  <Clock className="w-3 h-3" />
+                                  <span>{activity.time}</span>
+                                </Badge>
+                                <Badge variant="outline" className="flex items-center space-x-1">
+                                  <Users className="w-3 h-3" />
+                                  <span>${activity.pricePerPerson || activity.cost}/pp</span>
+                                </Badge>
+                                <Badge variant="outline" className="flex items-center space-x-1">
+                                  <DollarSign className="w-3 h-3" />
+                                  <span>Total: ${activity.cost}</span>
+                                </Badge>
+                              </div>
+                            </div>
+                            <p className="text-gray-600 mb-3">{activity.description}</p>
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-1 text-sm text-gray-500">
+                                <MapPin className="w-3 h-3" />
+                                <span>{activity.location}</span>
+                              </div>
+                              {activity.link && (
+                                <a 
+                                  href={activity.link} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center space-x-1 text-gray-700 hover:text-gray-900 text-sm font-medium border-b border-gray-300 hover:border-gray-500 transition-colors"
+                                >
+                                  <span>Book Now</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
           </div>
         )}
       </div>
