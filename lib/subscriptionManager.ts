@@ -92,11 +92,11 @@ export const subscriptionManager = {
   },
 
   // Create or update subscription
-  async updateSubscription(userId: string, plan: PlanType) {
+  async updateSubscription(userId: string, plan: PlanType, supabaseClient = supabase) {
     const now = new Date()
     const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000) // 30 days
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('user_subscriptions')
       .upsert({
         user_id: userId,

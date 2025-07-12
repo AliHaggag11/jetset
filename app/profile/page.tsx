@@ -1,5 +1,6 @@
 'use client'
 import { useAuth } from '@/lib/auth'
+import { useTheme } from '@/lib/theme-provider'
 import { useEffect, useState, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -40,6 +41,7 @@ type TabType = 'profile' | 'settings' | 'subscription' | 'security' | 'danger'
 
 export default function ProfilePage() {
   const { user, session, loading, signOut } = useAuth()
+  const { theme: currentTheme, setTheme: setCurrentTheme } = useTheme()
   const [activeTab, setActiveTab] = useState<TabType>('profile')
   const [plan, setPlan] = useState<'free' | 'explorer' | 'adventurer'>('free')
   const [email, setEmail] = useState('')
@@ -55,7 +57,7 @@ export default function ProfilePage() {
   const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   // Settings state
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system')
+  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(currentTheme)
   const [language, setLanguage] = useState('en')
   const [notifications, setNotifications] = useState({
     email: true,
@@ -119,7 +121,9 @@ export default function ProfilePage() {
         })
         if (response.ok) {
           const data = await response.json()
-          setTheme(data.theme || 'system')
+          const savedTheme = data.theme || 'system'
+          setTheme(savedTheme)
+          setCurrentTheme(savedTheme) // Sync with theme context
           setLanguage(data.language || 'en')
           setNotifications(data.notifications || {
             email: true,
@@ -363,8 +367,8 @@ export default function ProfilePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
       </div>
     )
   }
@@ -378,12 +382,12 @@ export default function ProfilePage() {
   ]
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
+    <div className="min-h-screen bg-background py-12">
       <div className="container mx-auto max-w-4xl px-4">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Account Settings</h1>
-          <p className="text-gray-600 mt-2">Manage your account preferences and settings</p>
+          <h1 className="text-3xl font-bold text-foreground">Account Settings</h1>
+          <p className="text-muted-foreground mt-2">Manage your account preferences and settings</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
@@ -553,7 +557,10 @@ export default function ProfilePage() {
                   <CardContent className="space-y-4">
                     <div>
                       <Label htmlFor="theme">Theme</Label>
-                      <Select value={theme} onValueChange={(value: 'light' | 'dark' | 'system') => setTheme(value)}>
+                      <Select value={theme} onValueChange={(value: 'light' | 'dark' | 'system') => {
+                        setTheme(value)
+                        setCurrentTheme(value) // Apply theme immediately
+                      }}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>

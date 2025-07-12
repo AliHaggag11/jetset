@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { subscriptionManager } from '@/lib/subscriptionManager'
 import { supabase } from '@/lib/supabase'
+import { createClient } from '@supabase/supabase-js'
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,8 +21,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Update the user's subscription
-    const subscription = await subscriptionManager.updateSubscription(userId, plan)
+    // Create a Supabase client with the service role key
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!serviceRoleKey) {
+      throw new Error('SUPABASE_SERVICE_ROLE_KEY is not set in environment variables.')
+    }
+    const serviceSupabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serviceRoleKey
+    )
+
+    // Update the user's subscription using the privileged client
+    const subscription = await subscriptionManager.updateSubscription(userId, plan, serviceSupabase)
 
     return NextResponse.json({
       success: true,

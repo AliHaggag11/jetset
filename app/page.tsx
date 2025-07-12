@@ -18,22 +18,22 @@ import Link from 'next/link'
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-background">
       {/* Hero Section */}
       <section className="relative">
         <div className="container mx-auto px-4 pt-20 pb-16 lg:pt-32 lg:pb-24">
           <div className="max-w-4xl mx-auto text-center">
-            <Badge variant="secondary" className="mb-8 bg-blue-50 text-blue-700 border-blue-200">
+            <Badge variant="secondary" className="mb-8 bg-primary/10 text-primary border-primary/20">
               <Sparkles className="w-4 h-4 mr-2" />
               AI-Powered Travel Planning
             </Badge>
             
-            <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-gray-900 mb-8 tracking-tight">
+            <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold text-foreground mb-8 tracking-tight">
               Plan amazing trips
-              <span className="block text-blue-600">in minutes, not hours</span>
+              <span className="block text-primary">in minutes, not hours</span>
             </h1>
             
-            <p className="text-xl text-gray-600 mb-12 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-xl text-muted-foreground mb-12 max-w-2xl mx-auto leading-relaxed">
               Create personalized itineraries with AI. Get the perfect trip plan 
               tailored to your budget, style, and interests.
             </p>
