@@ -10,6 +10,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { CalendarDays, DollarSign, User, Heart, ArrowRight, ArrowLeft } from 'lucide-react'
 import StepIndicator from './step-indicator'
 import { PERSONA_OPTIONS } from '@/lib/types'
+import { subscriptionManager } from '@/lib/subscriptionManager'
+import { useAuth } from '@/lib/auth'
 
 export interface TripFormData {
   title: string
@@ -35,6 +37,8 @@ const STEPS = ['Trip Details', 'Budget', 'Travel Style', 'Interests']
 
 export default function TripWizard({ onComplete }: TripWizardProps) {
   const [currentStep, setCurrentStep] = useState(0)
+  const [tripDurationError, setTripDurationError] = useState<string | null>(null)
+  const { user } = useAuth()
   const [formData, setFormData] = useState<TripFormData>({
     title: '',
     destination: '',
@@ -56,6 +60,31 @@ export default function TripWizard({ onComplete }: TripWizardProps) {
       ...prev,
       [field]: value
     }))
+
+    // Validate trip duration when dates change
+    if ((field === 'startDate' || field === 'endDate') && formData.startDate && formData.endDate) {
+      validateTripDuration()
+    }
+  }
+
+  const validateTripDuration = async () => {
+    if (!user || !formData.startDate || !formData.endDate) return
+
+    try {
+      const validation = await subscriptionManager.validateTripDuration(
+        user.id, 
+        formData.startDate, 
+        formData.endDate
+      )
+      
+      if (!validation.valid) {
+        setTripDurationError(validation.reason || 'Invalid trip duration')
+      } else {
+        setTripDurationError(null)
+      }
+    } catch (error) {
+      console.error('Error validating trip duration:', error)
+    }
   }
 
   const updateInterests = (interest: keyof TripFormData['interests'], checked: boolean) => {
@@ -87,7 +116,7 @@ export default function TripWizard({ onComplete }: TripWizardProps) {
   const isStepValid = () => {
     switch (currentStep) {
       case 0:
-        return formData.title && formData.destination && formData.startDate && formData.endDate
+        return formData.title && formData.destination && formData.startDate && formData.endDate && !tripDurationError
       case 1:
         return formData.budget > 0
       case 2:
@@ -157,9 +186,16 @@ export default function TripWizard({ onComplete }: TripWizardProps) {
                       type="date"
                       value={formData.endDate}
                       onChange={(e) => updateFormData('endDate', e.target.value)}
+                      min={formData.startDate}
+                      required
                     />
                   </div>
                 </div>
+                {tripDurationError && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                    <p className="text-sm text-red-600">{tripDurationError}</p>
+                  </div>
+                )}
               </div>
             </div>
           )}

@@ -3,45 +3,51 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import TripWizard, { TripFormData } from '@/components/trip-wizard/trip-wizard'
-import { supabase } from '@/lib/supabase'
-import { generateItinerary } from '@/lib/groq'
+import { tripService } from '@/lib/tripService'
+import { useAuth } from '@/lib/auth'
+import { subscriptionService } from '@/lib/subscriptionService'
+import { subscriptionManager } from '@/lib/subscriptionManager'
 import type { TripData } from '@/lib/types'
 
 export default function PlanPage() {
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
+  const { user, loading: authLoading } = useAuth()
+
+  // Redirect to login if not authenticated
+  if (!authLoading && !user) {
+    router.push('/login')
+    return null
+  }
 
   const handleTripComplete = async (formData: TripFormData) => {
+    if (!user) {
+      router.push('/login')
+      return
+    }
+
     setIsCreating(true)
     
     try {
-      // Transform form data to match Gemini API expectations
-      const tripData: TripData = {
-        destination: formData.destination,
-        startDate: formData.startDate,
-        endDate: formData.endDate,
-        budget: formData.budget,
-        persona: formData.persona,
-        interests: formData.interests
+      // Check if user can create a trip based on their plan
+      const usage = await subscriptionService.getUserUsage(user.id)
+      const canCreate = await subscriptionManager.canPerformAction(
+        user.id, 
+        'create_trip', 
+        usage.trips_created
+      )
+      
+      if (!canCreate.allowed) {
+        alert(canCreate.reason)
+        router.push('/pricing')
+        return
       }
 
-      // For now, we'll just save to localStorage since we don't have auth yet
-      // In production, this would save to Supabase after authentication
-      const tripId = Date.now().toString()
-      const tripWithId = {
-        id: tripId,
-        ...formData,
-        created_at: new Date().toISOString()
-      }
-
-      // Save to localStorage temporarily
-      const existingTrips = JSON.parse(localStorage.getItem('jetset_trips') || '[]')
-      existingTrips.push(tripWithId)
-      localStorage.setItem('jetset_trips', JSON.stringify(existingTrips))
-
-      // Generate itinerary (this will be done on the itinerary page)
-      // For now, redirect to a success page or itinerary page
-      router.push(`/itinerary/${tripId}`)
+      // Create trip in Supabase
+      const trip = await tripService.createTrip(formData, user.id)
+      
+      // Redirect to itinerary generation page
+      router.push(`/itinerary/${trip.id}`)
       
     } catch (error) {
       console.error('Error creating trip:', error)

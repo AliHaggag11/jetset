@@ -6,10 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Clock, MapPin, DollarSign, Calendar, RefreshCw, Share2, Download, ExternalLink, Users } from 'lucide-react'
-import { generateItinerary } from '@/lib/groq'
 import type { TripData, ItineraryDay } from '@/lib/types'
 import ReactCountryFlag from 'react-country-flag'
 import { fetchUnsplashImage } from '@/lib/unsplash'
+import { tripService, type Trip } from '@/lib/tripService'
+import { useAuth } from '@/lib/auth'
+import { subscriptionService } from '@/lib/subscriptionService'
+import { subscriptionManager } from '@/lib/subscriptionManager'
+import UpgradeModal from '@/components/upgrade-modal'
 
 // Helper to guess country code from destination string
 function guessCountryCode(destination: string): string {
@@ -127,27 +131,68 @@ export default function ItineraryPage() {
   const params = useParams()
   const router = useRouter()
   const tripId = params.id as string
+  const { user, loading: authLoading } = useAuth()
   
-  const [trip, setTrip] = useState<any>(null)
+  const [trip, setTrip] = useState<Trip | null>(null)
   const [itinerary, setItinerary] = useState<ItineraryDay[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isIncomplete, setIsIncomplete] = useState(false)
   const [expectedDays, setExpectedDays] = useState(0)
   const [heroImage, setHeroImage] = useState<string>('')
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
+  const [upgradeReason, setUpgradeReason] = useState('')
+  const [currentPlan, setCurrentPlan] = useState<'free' | 'explorer' | 'adventurer'>('free')
+
+  // Redirect to login if not authenticated
+  if (!authLoading && !user) {
+    router.push('/login')
+    return null
+  }
 
   useEffect(() => {
-    // Load trip data from localStorage
-    const trips = JSON.parse(localStorage.getItem('jetset_trips') || '[]')
-    const currentTrip = trips.find((t: any) => t.id === tripId)
-    
-    if (currentTrip) {
-      setTrip(currentTrip)
-      generateTripItinerary(currentTrip)
-    } else {
-      router.push('/plan')
+    if (user) {
+      loadTrip()
     }
-  }, [tripId, router])
+  }, [tripId, user])
+
+  useEffect(() => {
+    async function fetchPlan() {
+      if (user) {
+        const sub = await subscriptionService.getUserSubscription(user.id)
+        setCurrentPlan(sub?.plan || 'free')
+      }
+    }
+    fetchPlan()
+  }, [user])
+
+  const loadTrip = async () => {
+    if (!user) return
+    
+    try {
+      const currentTrip = await tripService.getTrip(tripId, user.id)
+      
+      if (currentTrip) {
+        setTrip(currentTrip)
+        
+        // Load existing itinerary if available
+        if (currentTrip.itineraries && currentTrip.itineraries.length > 0) {
+          const savedItinerary = currentTrip.itineraries
+            .sort((a: any, b: any) => a.day - b.day)
+            .map((item: any) => item.content)
+          setItinerary(savedItinerary)
+        } else {
+          // Generate new itinerary if none exists
+          generateTripItinerary(currentTrip)
+        }
+      } else {
+        router.push('/dashboard')
+      }
+    } catch (error) {
+      console.error('Error loading trip:', error)
+      router.push('/dashboard')
+    }
+  }
 
   useEffect(() => {
     async function getImage() {
@@ -174,18 +219,30 @@ export default function ItineraryPage() {
     getImage();
   }, [trip]);
 
-  const generateTripItinerary = async (tripData: any) => {
+  const generateTripItinerary = async (tripData: Trip) => {
+    if (!user) return
+    
     setIsGenerating(true)
     setError(null)
     
     try {
+      // Get trip preferences for the API
+      const tripPreferences = await tripService.getTrip(tripId, user.id)
+      if (!tripPreferences) throw new Error('Trip not found')
+      
       const geminiTripData: TripData = {
         destination: tripData.destination,
-        startDate: tripData.startDate,
-        endDate: tripData.endDate,
+        startDate: tripData.start_date,
+        endDate: tripData.end_date,
         budget: tripData.budget,
         persona: tripData.persona,
-        interests: tripData.interests
+        interests: {
+          culture: tripPreferences.trip_preferences?.[0]?.interest_culture || false,
+          food: tripPreferences.trip_preferences?.[0]?.interest_food || false,
+          nature: tripPreferences.trip_preferences?.[0]?.interest_nature || false,
+          shopping: tripPreferences.trip_preferences?.[0]?.interest_shopping || false,
+          nightlife: tripPreferences.trip_preferences?.[0]?.interest_nightlife || false,
+        }
       }
       
       const response = await fetch('/api/generate-itinerary', {
@@ -219,14 +276,13 @@ export default function ItineraryPage() {
         setExpectedDays(0)
       }
       
-      // Save itinerary to localStorage
-      const trips = JSON.parse(localStorage.getItem('jetset_trips') || '[]')
-      const updatedTrips = trips.map((t: any) => 
-        t.id === tripId 
-          ? { ...t, itinerary: generatedItinerary, generated_at: new Date().toISOString() }
-          : t
-      )
-      localStorage.setItem('jetset_trips', JSON.stringify(updatedTrips))
+      // Save itinerary to database
+      await tripService.saveItinerary(tripId, generatedItinerary)
+      
+      // Record regeneration if this is a regeneration
+      if (itinerary.length > 0) {
+        await subscriptionService.recordRegeneration(user.id, tripId)
+      }
       
     } catch (err) {
       console.error('Error generating itinerary:', err)
@@ -311,7 +367,7 @@ export default function ItineraryPage() {
             <div className="flex items-center space-x-4 mt-2 text-gray-200">
               <div className="flex items-center space-x-1">
                 <Calendar className="w-4 h-4" />
-                <span>{formatDate(trip.startDate)} - {formatDate(trip.endDate)}</span>
+                <span>{formatDate(trip.start_date)} - {formatDate(trip.end_date)}</span>
               </div>
               <div className="flex items-center space-x-1">
                 <DollarSign className="w-4 h-4" />
@@ -326,7 +382,17 @@ export default function ItineraryPage() {
           <div className="flex space-x-2 mt-6 md:mt-0">
             <Button
               variant="outline"
-              onClick={() => generateTripItinerary(trip)}
+              onClick={async () => {
+                if (!user) return
+                // Enforce regeneration limit
+                const canRegenerate = await subscriptionService.canRegenerate(user.id)
+                if (!canRegenerate.allowed) {
+                  setUpgradeReason(canRegenerate.reason || 'You have reached your limit.')
+                  setShowUpgradeModal(true)
+                  return
+                }
+                generateTripItinerary(trip)
+              }}
               disabled={isGenerating}
               className="flex items-center space-x-2 bg-white/80 hover:bg-white"
             >
@@ -337,7 +403,24 @@ export default function ItineraryPage() {
               <Share2 className="w-4 h-4 text-gray-900" />
               <span className="text-gray-900">Share</span>
             </Button>
-            <Button variant="outline" className="flex items-center space-x-2 bg-white/80 hover:bg-white">
+            <Button 
+              variant="outline" 
+              className="flex items-center space-x-2 bg-white/80 hover:bg-white"
+              onClick={async () => {
+                if (!user) return
+                
+                const canExport = await subscriptionManager.canPerformAction(user.id, 'export_itinerary')
+                
+                if (!canExport.allowed) {
+                  alert(canExport.reason)
+                  router.push('/pricing')
+                  return
+                }
+                
+                // TODO: Implement PDF export
+                alert('PDF export coming soon!')
+              }}
+            >
               <Download className="w-4 h-4 text-gray-900" />
               <span className="text-gray-900">Export</span>
             </Button>
@@ -507,6 +590,12 @@ export default function ItineraryPage() {
           </div>
         )}
       </div>
+      <UpgradeModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        currentPlan={currentPlan}
+        reason={upgradeReason}
+      />
     </div>
   )
 } 

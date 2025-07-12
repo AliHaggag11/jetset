@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -15,22 +16,50 @@ import {
   Plane
 } from 'lucide-react'
 import Link from 'next/link'
+import { useAuth } from '@/lib/auth'
+import { tripService, type Trip } from '@/lib/tripService'
+import UsageDashboard from '@/components/usage-dashboard'
 
 export default function DashboardPage() {
-  const [trips, setTrips] = useState<any[]>([])
+  const [trips, setTrips] = useState<Trip[]>([])
   const [loading, setLoading] = useState(true)
+  const { user, loading: authLoading } = useAuth()
+  const router = useRouter()
+
+  // Redirect to login if not authenticated
+  if (!authLoading && !user) {
+    router.push('/login')
+    return null
+  }
 
   useEffect(() => {
-    // Load trips from localStorage
-    const savedTrips = JSON.parse(localStorage.getItem('jetset_trips') || '[]')
-    setTrips(savedTrips)
-    setLoading(false)
-  }, [])
+    if (user) {
+      loadTrips()
+    }
+  }, [user])
 
-  const deleteTrip = (tripId: string) => {
-    const updatedTrips = trips.filter(trip => trip.id !== tripId)
-    setTrips(updatedTrips)
-    localStorage.setItem('jetset_trips', JSON.stringify(updatedTrips))
+  const loadTrips = async () => {
+    if (!user) return
+    
+    try {
+      const userTrips = await tripService.getUserTrips(user.id)
+      setTrips(userTrips)
+    } catch (error) {
+      console.error('Error loading trips:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const deleteTrip = async (tripId: string) => {
+    if (!user) return
+    
+    try {
+      await tripService.deleteTrip(tripId, user.id)
+      setTrips(trips.filter(trip => trip.id !== tripId))
+    } catch (error) {
+      console.error('Error deleting trip:', error)
+    }
   }
 
   const formatDate = (dateString: string) => {
@@ -83,6 +112,11 @@ export default function DashboardPage() {
               <span>New Trip</span>
             </Link>
           </Button>
+        </div>
+
+        {/* Usage Dashboard */}
+        <div className="mb-8">
+          <UsageDashboard />
         </div>
 
         {/* Stats Cards */}
@@ -174,7 +208,7 @@ export default function DashboardPage() {
                     <div className="flex items-center justify-between text-sm">
                       <div className="flex items-center space-x-1 text-gray-600">
                         <Calendar className="w-4 h-4" />
-                        <span>{formatDate(trip.startDate)} - {formatDate(trip.endDate)}</span>
+                        <span>{formatDate(trip.start_date)} - {formatDate(trip.end_date)}</span>
                       </div>
                     </div>
                     

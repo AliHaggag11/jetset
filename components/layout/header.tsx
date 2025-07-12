@@ -1,12 +1,15 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import { Plane, Menu, X } from 'lucide-react'
+import { Plane, Menu, X, User, LogOut } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
+import { useAuth } from '@/lib/auth'
+import SubscriptionStatus from '@/components/subscription-status'
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const { user, signOut } = useAuth()
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/95">
@@ -44,12 +47,32 @@ export default function Header() {
 
           {/* Desktop Auth Buttons */}
           <div className="hidden md:flex items-center space-x-3">
-            <Button variant="ghost" size="sm" className="text-gray-600 hover:text-gray-900" asChild>
-              <Link href="/login">Sign in</Link>
-            </Button>
-            <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" asChild>
-              <Link href="/signup">Get started</Link>
-            </Button>
+            {user ? (
+              <div className="flex items-center space-x-4">
+                <SubscriptionStatus />
+                <span className="text-sm text-gray-600">
+                  {user.email}
+                </span>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={signOut}
+                  className="text-gray-600 hover:text-gray-900"
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Sign out
+                </Button>
+              </div>
+            ) : (
+              <>
+                <Button variant="ghost" size="sm" className="text-gray-600 hover:text-gray-900" asChild>
+                  <Link href="/login">Sign in</Link>
+                </Button>
+                <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" asChild>
+                  <Link href="/signup">Get started</Link>
+                </Button>
+              </>
+            )}
           </div>
 
           {/* Mobile Menu Button */}
@@ -92,12 +115,31 @@ export default function Header() {
               </Link>
               
               <div className="pt-4 border-t border-gray-200 space-y-3">
-                <Button variant="ghost" size="sm" className="w-full justify-start text-gray-600" asChild>
-                  <Link href="/login">Sign in</Link>
-                </Button>
-                <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700 text-white" asChild>
-                  <Link href="/signup">Get started</Link>
-                </Button>
+                {user ? (
+                  <>
+                    <div className="text-sm text-gray-600 py-2">
+                      {user.email}
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={signOut}
+                      className="w-full justify-start text-gray-600"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Sign out
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="ghost" size="sm" className="w-full justify-start text-gray-600" asChild>
+                      <Link href="/login">Sign in</Link>
+                    </Button>
+                    <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700 text-white" asChild>
+                      <Link href="/signup">Get started</Link>
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </div>
