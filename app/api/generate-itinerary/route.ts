@@ -1,7 +1,6 @@
 import Groq from 'groq-sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import type { TripData, ItineraryDay, Activity } from '@/lib/types'
-// @ts-expect-error: dirty-json has no types
 import dirtyJSON from 'dirty-json'
 
 const groq = new Groq({
