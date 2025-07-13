@@ -18,7 +18,9 @@ import { getWeatherForecast, type WeatherForecast } from '@/lib/weather'
 import { WeatherCard } from '@/components/weather-card'
 import { WeatherOverview } from '@/components/weather-overview'
 import { TransportBooking } from '@/components/transport-booking'
+// @ts-ignore
 import jsPDF from 'jspdf'
+// @ts-ignore
 import html2canvas from 'html2canvas'
 import { renderToString } from 'react-dom/server'
 
