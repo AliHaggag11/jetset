@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Clock, MapPin, DollarSign, Calendar, RefreshCw, Share2, Download, ExternalLink, Users, Cloud } from 'lucide-react'
+import { Clock, MapPin, DollarSign, Calendar, RefreshCw, Share2, Download, ExternalLink, Users, Cloud, ChevronDown, ChevronRight, Sun, CloudRain, Cloud as CloudIcon, Snowflake } from 'lucide-react'
 import type { TripData, ItineraryDay } from '@/lib/types'
 import ReactCountryFlag from 'react-country-flag'
 import { fetchUnsplashImage } from '@/lib/unsplash'
@@ -17,6 +17,10 @@ import UpgradeModal from '@/components/upgrade-modal'
 import { getWeatherForecast, type WeatherForecast } from '@/lib/weather'
 import { WeatherCard } from '@/components/weather-card'
 import { WeatherOverview } from '@/components/weather-overview'
+import { TransportBooking } from '@/components/transport-booking'
+import jsPDF from 'jspdf'
+import html2canvas from 'html2canvas'
+import { renderToString } from 'react-dom/server'
 
 // Helper to guess country code from destination string
 function guessCountryCode(destination: string): string {
@@ -149,6 +153,8 @@ export default function ItineraryPage() {
   const [weather, setWeather] = useState<WeatherForecast | null>(null)
   const [weatherLoading, setWeatherLoading] = useState(false)
   const [showWeather, setShowWeather] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportHeroImageUrl, setExportHeroImageUrl] = useState<string | null>(null)
 
   // Redirect to login if not authenticated
   if (!authLoading && !user) {
@@ -161,6 +167,13 @@ export default function ItineraryPage() {
       loadTrip()
     }
   }, [tripId, user])
+
+  // Automatically fetch weather when trip is loaded
+  useEffect(() => {
+    if (trip && !weather && !weatherLoading) {
+      fetchWeatherData()
+    }
+  }, [trip])
 
   useEffect(() => {
     async function fetchPlan() {
@@ -351,8 +364,150 @@ export default function ItineraryPage() {
   }
 
   const totalCost = itinerary.reduce((sum, day) => sum + day.estimatedCost, 0)
-  const countryCode = useMemo(() => trip ? guessCountryCode(trip.destination) : 'US', [trip])
-  const cityImageUrl = useMemo(() => trip ? getCityImageUrl(trip.destination) : '', [trip])
+  const countryCode = useMemo(() => {
+    if (trip?.destination) return guessCountryCode(trip.destination) || 'US';
+    return 'US';
+  }, [trip?.destination]);
+  const cityImageUrl = useMemo(() => trip?.destination ? getCityImageUrl(trip.destination) : '', [trip?.destination])
+
+  // Collapsible state for days
+  const [expandedDays, setExpandedDays] = useState(() => itinerary.length > 0 ? [0] : [])
+  useEffect(() => {
+    // Reset expanded state when itinerary changes
+    setExpandedDays(itinerary.length > 0 ? [0] : [])
+  }, [itinerary])
+  const toggleDay = (idx: number) => {
+    setExpandedDays(expanded =>
+      expanded.includes(idx)
+        ? expanded.filter(i => i !== idx)
+        : [...expanded, idx]
+    )
+  }
+  // Helper for weather icon
+  const getWeatherIcon = (desc: string) => {
+    if (!desc) return <Sun className="w-4 h-4 text-yellow-400 inline-block" />
+    const d = desc.toLowerCase()
+    if (d.includes('rain')) return <CloudRain className="w-4 h-4 text-blue-400 inline-block" />
+    if (d.includes('cloud')) return <CloudIcon className="w-4 h-4 text-gray-400 inline-block" />
+    if (d.includes('snow')) return <Snowflake className="w-4 h-4 text-blue-200 inline-block" />
+    if (d.includes('sun')) return <Sun className="w-4 h-4 text-yellow-400 inline-block" />
+    return <Sun className="w-4 h-4 text-yellow-400 inline-block" />
+  }
+
+  // Helper to fetch image as data URL, with fallback
+  const fetchImageAsDataURL = async (url: string): Promise<string> => {
+    try {
+      const response = await fetch(url)
+      const blob = await response.blob()
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+    } catch (e) {
+      // Fallback to local image if fetch fails
+      const fallbackUrl = '/hero-fallback.jpg' // Place this image in your public folder
+      const response = await fetch(fallbackUrl)
+      const blob = await response.blob()
+      return await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+    }
+  }
+
+  // Print-friendly export (opens new window with styled HTML and triggers print)
+  const handlePrintExport = () => {
+    let weatherOverviewHtml = ''
+    if (weather) {
+      weatherOverviewHtml = `
+        <h2 style="margin:32px 0 8px 0;font-size:1.2em;font-weight:bold;">Weather Overview</h2>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:32px;font-size:1em;">
+          <thead>
+            <tr style="background:#f3f4f6;">
+              <th style="padding:8px;border:1px solid #e5e7eb;">Date</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;">Day</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;">Max</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;">Min</th>
+              <th style="padding:8px;border:1px solid #e5e7eb;">Condition</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${weather.forecast.map(day => `
+              <tr>
+                <td style="padding:8px;border:1px solid #e5e7eb;">${day.date}</td>
+                <td style="padding:8px;border:1px solid #e5e7eb;">${new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' })}</td>
+                <td style="padding:8px;border:1px solid #e5e7eb;">${Math.round(day.temperature.max)}°C</td>
+                <td style="padding:8px;border:1px solid #e5e7eb;">${Math.round(day.temperature.min)}°C</td>
+                <td style="padding:8px;border:1px solid #e5e7eb;">${day.condition}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `
+    }
+    const html = `
+      <html>
+        <head>
+          <title>Itinerary Export - ${trip?.destination}</title>
+          <style>
+            body { font-family: sans-serif; margin: 0; padding: 0; background: #f9f9f9; }
+            .hero { position: relative; height: 320px; }
+            .hero img { width: 100%; height: 100%; object-fit: cover; filter: brightness(0.7); }
+            .hero-content { position: absolute; bottom: 24px; left: 32px; color: #fff; }
+            .stats { display: flex; gap: 32px; margin: 24px 0; }
+            .stat { font-size: 1.2em; }
+            .itinerary-day { margin-bottom: 24px; background: #fff; border-radius: 8px; padding: 16px; }
+            .activity { margin-bottom: 8px; }
+          </style>
+        </head>
+        <body>
+          <div class="hero">
+            <img src="${heroImage || ''}" alt="${trip?.destination?.split(',')[0]?.trim() || ''}" />
+            <div class="hero-content">
+              <h1 style="font-size:2.5em; font-weight:bold;">${trip?.destination?.split(',')[0]?.trim() || ''}</h1>
+              <div>${formatDate(trip?.start_date || '')} - ${formatDate(trip?.end_date || '')}</div>
+              <div>${trip?.title ? `<span>${trip.title}</span>` : ''} ${trip?.persona ? `<span>(${trip.persona})</span>` : ''}</div>
+            </div>
+          </div>
+          ${weatherOverviewHtml}
+          <div class="stats">
+            <div class="stat"><b>${itinerary.length}</b> Days</div>
+            <div class="stat"><b>$${totalCost}</b> Estimated Total</div>
+            <div class="stat"><b>${itinerary.reduce((sum, day) => sum + day.activities.length, 0)}</b> Activities</div>
+          </div>
+          <div>
+            ${itinerary.map(day => `
+              <div class="itinerary-day">
+                <h2>Day ${day.day} - ${formatDate(day.date)}</h2>
+                <div>${(day as any).city ? `<b>City:</b> ${(day as any).city}` : ''}</div>
+                <ul>
+                  ${day.activities.map(activity => `
+                    <li class="activity">
+                      <b>${activity.time}</b> - <b>${activity.title}</b> (${activity.location})<br/>
+                      ${activity.description}<br/>
+                      <span>Cost: $${activity.cost}</span>
+                    </li>
+                  `).join('')}
+                </ul>
+              </div>
+            `).join('')}
+          </div>
+          <script>
+            window.onload = function() { window.print(); }
+          </script>
+        </body>
+      </html>
+    `;
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(html);
+      printWindow.document.close();
+    }
+  };
 
   if (!trip) {
     return (
@@ -380,11 +535,11 @@ export default function ItineraryPage() {
           <div>
             <div className="flex items-center space-x-3 mb-2">
               <ReactCountryFlag
-                countryCode={countryCode}
+                countryCode={String(countryCode)}
                 svg
                 style={{ width: '2.5em', height: '2.5em', borderRadius: '0.5em', boxShadow: '0 2px 8px #0004' }}
-                title={countryCode}
-                aria-label={countryCode}
+                title={String(countryCode)}
+                aria-label={String(countryCode)}
               />
               <h1 className="text-4xl md:text-5xl font-bold text-white drop-shadow-lg">{trip.destination}</h1>
             </div>
@@ -446,20 +601,8 @@ export default function ItineraryPage() {
             <Button 
               variant="outline" 
               className="flex items-center space-x-2 bg-white/80 hover:bg-white"
-              onClick={async () => {
-                if (!user) return
-                
-                const canExport = await subscriptionManager.canPerformAction(user.id, 'export_itinerary')
-                
-                if (!canExport.allowed) {
-                  alert(canExport.reason)
-                  router.push('/pricing')
-                  return
-                }
-                
-                // TODO: Implement PDF export
-                alert('PDF export coming soon!')
-              }}
+              onClick={handlePrintExport}
+              disabled={exporting}
             >
               <Download className="w-4 h-4 text-gray-900" />
               <span className="text-gray-900">Export</span>
@@ -570,20 +713,68 @@ export default function ItineraryPage() {
             {itinerary.map((day, index) => {
               // Find weather data for this day
               const dayWeather = weather?.forecast.find(w => w.date === day.date)
+              // Weather indicator for collapsed state
+              const showWeatherIndicator = !showWeather && dayWeather
+              
+              // Helper to infer city from day or first activity
+              const inferCity = (d: ItineraryDay) => {
+                if ((d as any).city) return (d as any).city;
+                if (d.activities && d.activities.length > 0) {
+                  const loc = d.activities[0].location;
+                  if (loc && loc.includes(',')) {
+                    const parts = loc.split(',');
+                    const lastPart = parts[parts.length - 1];
+                    return lastPart.trim();
+                  }
+                  return loc || trip?.destination?.split(',')[0]?.trim() || 'Unknown City';
+                }
+                return trip?.destination?.split(',')[0]?.trim() || 'Unknown City';
+              };
+              const currentCity = inferCity(day);
+              const previousCity = index > 0 ? inferCity(itinerary[index - 1]) : null;
+              const hasCityChange = previousCity && currentCity && previousCity !== currentCity;
               
               return (
-                <Card key={index}>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div>
+                <div key={index}>
+                  {/* Transport Booking Component - show between city changes */}
+                  {hasCityChange && (
+                    <div className="mb-6">
+                      <TransportBooking
+                        fromCity={previousCity}
+                        toCity={currentCity}
+                        date={day.date}
+                        onBook={(option) => {
+                          console.log('Transport booked:', option)
+                        }}
+                      />
+                    </div>
+                  )}
+                  
+                  <Card>
+                    <CardHeader
+                      className="cursor-pointer select-none flex flex-row items-center justify-between"
+                      onClick={() => toggleDay(index)}
+                    >
+                      <div className="flex items-center gap-2">
+                        {expandedDays.includes(index) ? (
+                          <ChevronDown className="w-4 h-4 text-gray-400" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-gray-400" />
+                        )}
                         <CardTitle className="text-xl">
                           Day {day.day} - {formatDate(day.date)}
                         </CardTitle>
-                        {(day as any).city && (
+                        {currentCity && (
                           <p className="text-sm text-gray-600 mt-1 flex items-center">
                             <MapPin className="w-3 h-3 mr-1" />
-                            {(day as any).city}
+                            {currentCity}
                           </p>
+                        )}
+                        {showWeatherIndicator && dayWeather && typeof dayWeather.temperature?.max === 'number' && (
+                          <span className="ml-2 flex items-center text-xs text-gray-500">
+                            {getWeatherIcon(dayWeather.condition ? String(dayWeather.condition) : '')}
+                            <span className="ml-1">{Math.round(dayWeather.temperature?.max ?? 0)}°C</span>
+                          </span>
                         )}
                       </div>
                       <div className="flex items-center space-x-2">
@@ -595,66 +786,67 @@ export default function ItineraryPage() {
                           <span>{day.activities.length} activities</span>
                         </Badge>
                       </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {/* Weather Card for this day */}
-                    {showWeather && dayWeather && (
-                      <div className="mb-6">
-                        <WeatherCard weather={dayWeather} showAdvice={true} />
-                      </div>
-                    )}
-                    
-                    <div className="space-y-4">
-                      {day.activities.map((activity, activityIndex) => (
-                        <div key={activityIndex} className="flex items-start space-x-4 p-4 bg-white rounded-lg border border-gray-200">
-                          <div className="flex-shrink-0">
-                            <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                              <span className="text-lg">{getCategoryIcon(activity.category)}</span>
-                            </div>
+                    </CardHeader>
+                    {expandedDays.includes(index) && (
+                      <CardContent>
+                        {/* Weather Card for this day */}
+                        {showWeather && dayWeather && (
+                          <div className="mb-6">
+                            <WeatherCard weather={dayWeather} showAdvice={true} />
                           </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between mb-2">
-                              <h4 className="font-medium text-gray-900">{activity.title}</h4>
-                              <div className="flex items-center space-x-2">
-                                <Badge variant="outline" className="flex items-center space-x-1">
-                                  <Clock className="w-3 h-3" />
-                                  <span>{activity.time}</span>
-                                </Badge>
-                                <Badge variant="outline" className="flex items-center space-x-1">
-                                  <Users className="w-3 h-3" />
-                                  <span>${activity.pricePerPerson || activity.cost}/pp</span>
-                                </Badge>
-                                <Badge variant="outline" className="flex items-center space-x-1">
-                                  <DollarSign className="w-3 h-3" />
-                                  <span>Total: ${activity.cost}</span>
-                                </Badge>
+                        )}
+                        <div className="space-y-4">
+                          {day.activities.map((activity, activityIndex) => (
+                            <div key={activityIndex} className="flex items-start space-x-4 p-4 bg-white rounded-lg border border-gray-200">
+                              <div className="flex-shrink-0">
+                                <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                                  <span className="text-lg">{getCategoryIcon(activity.category)}</span>
+                                </div>
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="font-medium text-gray-900">{activity.title}</h4>
+                                  <div className="flex items-center space-x-2">
+                                    <Badge variant="outline" className="flex items-center space-x-1">
+                                      <Clock className="w-3 h-3" />
+                                      <span>{activity.time}</span>
+                                    </Badge>
+                                    <Badge variant="outline" className="flex items-center space-x-1">
+                                      <Users className="w-3 h-3" />
+                                      <span>${activity.pricePerPerson || activity.cost}/pp</span>
+                                    </Badge>
+                                    <Badge variant="outline" className="flex items-center space-x-1">
+                                      <DollarSign className="w-3 h-3" />
+                                      <span>Total: ${activity.cost}</span>
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <p className="text-gray-600 mb-3">{activity.description}</p>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center space-x-1 text-sm text-gray-500">
+                                    <MapPin className="w-3 h-3" />
+                                    <span>{activity.location}</span>
+                                  </div>
+                                  {activity.link && (
+                                    <a 
+                                      href={activity.link} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center space-x-1 text-gray-700 hover:text-gray-900 text-sm font-medium border-b border-gray-300 hover:border-gray-500 transition-colors"
+                                    >
+                                      <span>Book Now</span>
+                                      <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                            <p className="text-gray-600 mb-3">{activity.description}</p>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-1 text-sm text-gray-500">
-                                <MapPin className="w-3 h-3" />
-                                <span>{activity.location}</span>
-                              </div>
-                              {activity.link && (
-                                <a 
-                                  href={activity.link} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center space-x-1 text-gray-700 hover:text-gray-900 text-sm font-medium border-b border-gray-300 hover:border-gray-500 transition-colors"
-                                >
-                                  <span>Book Now</span>
-                                  <ExternalLink className="w-3 h-3" />
-                                </a>
-                              )}
-                            </div>
-                          </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
+                      </CardContent>
+                    )}
+                  </Card>
+                </div>
               )
             })}
           </div>

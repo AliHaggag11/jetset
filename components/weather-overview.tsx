@@ -57,17 +57,17 @@ export function WeatherOverview({ weather }: WeatherOverviewProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center space-x-2">
-          <Cloud className="w-5 h-5" />
+    <Card className="shadow-lg rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+      <CardHeader className="pb-2 border-b border-gray-100 dark:border-gray-800">
+        <CardTitle className="flex items-center space-x-2 text-gray-900 dark:text-gray-100 text-lg font-semibold">
+          <Cloud className="w-5 h-5 text-blue-400 dark:text-blue-300" />
           <span>Weather Overview</span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6 pt-4">
         {/* Location and Date Range */}
-        <div className="flex items-center justify-between text-sm text-gray-600">
-          <span className="font-medium">{weather.location}</span>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between text-sm text-gray-500 dark:text-gray-400 gap-1">
+          <span className="font-medium text-gray-700 dark:text-gray-200">{weather.location}</span>
           <div className="flex items-center space-x-1">
             <Calendar className="w-4 h-4" />
             <span>
@@ -77,66 +77,55 @@ export function WeatherOverview({ weather }: WeatherOverviewProps) {
         </div>
 
         {/* Summary Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 border-y border-gray-100 dark:border-gray-800 py-4">
           <div className="text-center">
-            <div className={`text-2xl font-bold ${getTemperatureColor(avgTemp)}`}>
-              {avgTemp}°C
-            </div>
-            <div className="text-xs text-gray-500">Avg High</div>
+            <div className={`text-2xl font-bold text-gray-900 dark:text-gray-100`}>{avgTemp}°C</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Avg High</div>
           </div>
-          
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-600">
-              {avgHumidity}%
-            </div>
-            <div className="text-xs text-gray-500">Avg Humidity</div>
+            <div className="text-2xl font-bold text-gray-700 dark:text-gray-200">{avgHumidity}%</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Avg Humidity</div>
           </div>
-          
           <div className="text-center">
-            <div className="text-2xl font-bold text-gray-600">
-              {avgWindSpeed} m/s
-            </div>
-            <div className="text-xs text-gray-500">Avg Wind</div>
+            <div className="text-2xl font-bold text-gray-700 dark:text-gray-200">{avgWindSpeed} m/s</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Avg Wind</div>
           </div>
-          
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-500">
-              {rainyDays}
-            </div>
-            <div className="text-xs text-gray-500">Rainy Days</div>
+            <div className="text-2xl font-bold text-gray-700 dark:text-gray-200">{rainyDays}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Rainy Days</div>
           </div>
         </div>
 
         {/* Most Common Condition */}
-        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+        <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-800">
           <div className="flex items-center space-x-2">
             <span className="text-2xl">{getWeatherIcon(weather.forecast.find(d => d.condition === mostCommonCondition)?.icon || '01d')}</span>
             <div>
-              <p className="text-sm font-medium">Most Common</p>
-              <p className="text-xs text-gray-500">{mostCommonCondition}</p>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Most Common</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{mostCommonCondition}</p>
             </div>
           </div>
-          <Badge variant="secondary">
+          <Badge variant="secondary" className="bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-none">
             {Math.round((conditionCounts[mostCommonCondition] / weather.forecast.length) * 100)}% of days
           </Badge>
         </div>
 
         {/* Daily Preview */}
         <div>
-          <h4 className="text-sm font-medium mb-2">Daily Forecast</h4>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <h4 className="text-sm font-medium mb-2 text-gray-900 dark:text-gray-100">Daily Forecast</h4>
+          <div className="flex md:grid md:grid-cols-5 gap-2 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700 pb-1">
             {weather.forecast.slice(0, 5).map((day, index) => (
-              <div key={index} className="text-center p-2 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-500 mb-1">
+              <div key={index} className="min-w-[90px] md:min-w-0 text-center p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-800 flex-shrink-0">
+                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
                   {formatDate(day.date)}
                 </div>
                 <div className="text-lg mb-1">
                   {getWeatherIcon(day.icon)}
                 </div>
-                <div className={`text-sm font-medium ${getTemperatureColor(day.temperature.max)}`}>
+                <div className="text-base font-semibold text-gray-900 dark:text-gray-100">
                   {Math.round(day.temperature.max)}°
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-500 dark:text-gray-400">
                   {Math.round(day.temperature.min)}°
                 </div>
               </div>
