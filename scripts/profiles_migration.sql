@@ -1,0 +1,1 @@
+ALTER TABLE trips ADD COLUMN IF NOT EXISTS share_id UUID UNIQUE DEFAULT gen_random_uuid(); 

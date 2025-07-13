@@ -23,6 +23,7 @@ import jsPDF from 'jspdf'
 // @ts-ignore
 import html2canvas from 'html2canvas'
 import { renderToString } from 'react-dom/server'
+import ShareModal from '@/components/share-modal';
 
 // Helper to guess country code from destination string
 function guessCountryCode(destination: string): string {
@@ -157,6 +158,8 @@ export default function ItineraryPage() {
   const [showWeather, setShowWeather] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportHeroImageUrl, setExportHeroImageUrl] = useState<string | null>(null)
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
 
   // Redirect to login if not authenticated
   if (!authLoading && !user) {
@@ -511,6 +514,26 @@ export default function ItineraryPage() {
     }
   };
 
+  // Show share modal and set share URL
+  const handleShare = async () => {
+    if (!trip) return;
+    let shareId = trip.share_id;
+    // If no share_id, generate and save one
+    if (!shareId) {
+      // Generate a new share_id and save to DB
+      shareId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+      await fetch(`/api/trip/${trip.id}/set-share-id`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ share_id: shareId }),
+      });
+      trip.share_id = shareId;
+    }
+    const url = `${window.location.origin}/app/itinerary/share/${shareId}`;
+    setShareUrl(url);
+    setShowShareModal(true);
+  };
+
   if (!trip) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -596,7 +619,9 @@ export default function ItineraryPage() {
                 {weatherLoading ? 'Loading...' : showWeather ? 'Hide Weather' : 'Show Weather'}
               </span>
             </Button>
-            <Button variant="outline" className="flex items-center space-x-2 bg-white/80 hover:bg-white">
+            <Button variant="outline" className="flex items-center space-x-2 bg-white/80 hover:bg-white"
+              onClick={handleShare}
+            >
               <Share2 className="w-4 h-4 text-gray-900" />
               <span className="text-gray-900">Share</span>
             </Button>
@@ -860,6 +885,7 @@ export default function ItineraryPage() {
         currentPlan={currentPlan}
         reason={upgradeReason}
       />
+      <ShareModal isOpen={showShareModal} onClose={() => setShowShareModal(false)} shareUrl={shareUrl} />
     </div>
   )
 } 

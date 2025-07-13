@@ -29,6 +29,7 @@ export interface Trip {
     interest_shopping: boolean
     interest_nightlife: boolean
   }>
+  share_id?: string
 }
 
 export interface CreateTripData {
@@ -60,6 +61,7 @@ export const tripService = {
         end_date: tripData.endDate,
         budget: tripData.budget,
         persona: tripData.persona,
+        share_id: crypto.randomUUID ? crypto.randomUUID() : undefined,
       })
       .select()
       .single()
@@ -124,6 +126,24 @@ export const tripService = {
     return data
   },
 
+  // Get a trip by share_id (public view)
+  async getTripByShareId(shareId: string): Promise<Trip | null> {
+    const { data, error } = await supabase
+      .from('trips')
+      .select(`*, trip_preferences (*), itineraries (*)`)
+      .eq('share_id', shareId)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null // Trip not found
+      }
+      throw new Error(`Failed to fetch trip by share_id: ${error.message}`)
+    }
+
+    return data
+  },
+
   // Save itinerary for a trip
   async saveItinerary(tripId: string, itinerary: ItineraryDay[]): Promise<void> {
     // First, delete existing itineraries for this trip
@@ -161,4 +181,4 @@ export const tripService = {
       throw new Error(`Failed to delete trip: ${error.message}`)
     }
   },
-} 
+}
